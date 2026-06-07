@@ -18,7 +18,7 @@
     "node-telegram-bot-api": "^0.64.0",
     "openai": "^4.56.0",
     "twitter-api-v2": "^1.17.0",
-    "better-sqlite3": "^11.1.2",
+    "sql.js": "^1.12.0",
     "uuid": "^9.0.1"
   }
 }

@@ -176,8 +176,8 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
 
   bot.onText(/\/limpar/, (msg) => {
     if (!isAuthorized(msg)) return;
-    const db_raw = db.getDB();
-    db_raw.prepare(`UPDATE queue SET status = 'ignored' WHERE status = 'pending'`).run();
+    
+    db.clearPendingQueue();
     bot.sendMessage(CHAT_ID, '🗑️ Fila limpa.');
   });
 
@@ -223,7 +223,7 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
       };
       const generatedPost = await generatePost(fakeProduct);
       const id = db.addToQueue({ ...fakeProduct, generatedPost });
-      const item = db.getDB().prepare(`SELECT * FROM queue WHERE id = ?`).get(id);
+      const item = db.getQueueItemById(id);
       await presentPostForApproval(item);
     } catch (err) {
       bot.sendMessage(CHAT_ID, `❌ Erro ao gerar post: ${err.message}`);
@@ -240,7 +240,7 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
     bot.answerCallbackQuery(query.id);
 
     if (action === 'post_approve') {
-      const item = db.getDB().prepare(`SELECT * FROM queue WHERE id = ?`).get(id);
+      const item = db.getQueueItemById(id);
       if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
 
       try {
@@ -257,7 +257,7 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
       bot.sendMessage(CHAT_ID, `🗑️ Post ignorado.\nFila restante: ${db.getPendingCount()} item(s).`);
 
     } else if (action === 'post_regen') {
-      const item = db.getDB().prepare(`SELECT * FROM queue WHERE id = ?`).get(id);
+      const item = db.getQueueItemById(id);
       if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
 
       bot.sendMessage(CHAT_ID, '🔄 Regenerando post...');
@@ -272,8 +272,8 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
           salesCount: item.sales_count,
         };
         const newPost = await generatePost(product);
-        db.getDB().prepare(`UPDATE queue SET generated_post = ? WHERE id = ?`).run(newPost, id);
-        const updated = db.getDB().prepare(`SELECT * FROM queue WHERE id = ?`).get(id);
+        db.updateQueuePost(id, newPost);
+        const updated = db.getQueueItemById(id);
         await presentPostForApproval(updated);
       } catch (err) {
         bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);

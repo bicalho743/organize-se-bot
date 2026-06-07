@@ -34,7 +34,7 @@ async function main() {
   console.log('🚀 Iniciando Organize-se Bot...');
 
   // 1. Banco de dados
-  initDB();
+  await initDB();
 
   // 2. Telegram (cockpit operacional)
   initTelegram();

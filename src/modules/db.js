@@ -1,18 +1,31 @@
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
+const fs = require('fs');
 const path = require('path');
 
 const DB_PATH = path.join(__dirname, '../../data/bot.db');
+const DATA_DIR = path.join(__dirname, '../../data');
 
 let db;
 
-function initDB() {
-  const fs = require('fs');
-  const dataDir = path.join(__dirname, '../../data');
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+// Salva o banco em disco após cada escrita
+function persist() {
+  const data = db.export();
+  fs.writeFileSync(DB_PATH, Buffer.from(data));
+}
 
-  db = new Database(DB_PATH);
+async function initDB() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  db.exec(`
+  const SQL = await initSqlJs();
+
+  if (fs.existsSync(DB_PATH)) {
+    const fileBuffer = fs.readFileSync(DB_PATH);
+    db = new SQL.Database(fileBuffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS queue (
       id TEXT PRIMARY KEY,
       product_name TEXT NOT NULL,
@@ -26,8 +39,8 @@ function initDB() {
       category TEXT,
       generated_post TEXT,
       status TEXT DEFAULT 'pending',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      posted_at DATETIME
+      created_at TEXT DEFAULT (datetime('now')),
+      posted_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS posted_history (
@@ -37,7 +50,7 @@ function initDB() {
       tweet_url TEXT,
       post_text TEXT,
       category TEXT,
-      posted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      posted_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -45,7 +58,7 @@ function initDB() {
       state TEXT DEFAULT 'idle',
       pending_post TEXT,
       pending_product TEXT,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS daily_count (
@@ -54,6 +67,7 @@ function initDB() {
     );
   `);
 
+  persist();
   console.log('[DB] Banco iniciado com sucesso.');
   return db;
 }
@@ -63,100 +77,138 @@ function getDB() {
   return db;
 }
 
+function runQuery(sql, params = []) {
+  db.run(sql, params);
+  persist();
+}
+
+function getOne(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    stmt.free();
+    return row;
+  }
+  stmt.free();
+  return null;
+}
+
+function getAll(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+
 // Queue
 function addToQueue(product) {
   const { v4: uuidv4 } = require('uuid');
   const id = uuidv4();
-  const stmt = getDB().prepare(`
+  runQuery(`
     INSERT OR IGNORE INTO queue 
     (id, product_name, price, original_price, discount_pct, affiliate_link, image_url, rating, sales_count, category, generated_post)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(id, product.name, product.price, product.originalPrice, product.discountPct,
-    product.affiliateLink, product.imageUrl, product.rating, product.salesCount,
-    product.category, product.generatedPost || null);
+  `, [id, product.name, product.price, product.originalPrice, product.discountPct,
+      product.affiliateLink, product.imageUrl || null, product.rating || null,
+      product.salesCount || null, product.category || null, product.generatedPost || null]);
   return id;
 }
 
 function getNextInQueue() {
-  return getDB().prepare(`
-    SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1
-  `).get();
+  return getOne(`SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`);
 }
 
 function markAsPosted(id, tweetId, tweetUrl) {
-  getDB().prepare(`UPDATE queue SET status = 'posted', posted_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
-  const item = getDB().prepare(`SELECT * FROM queue WHERE id = ?`).get(id);
+  const item = getOne(`SELECT * FROM queue WHERE id = ?`, [id]);
+  runQuery(`UPDATE queue SET status = 'posted', posted_at = datetime('now') WHERE id = ?`, [id]);
   if (item) {
-    getDB().prepare(`
+    runQuery(`
       INSERT INTO posted_history (id, product_name, tweet_id, tweet_url, post_text, category)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(item.id, item.product_name, tweetId, tweetUrl, item.generated_post, item.category);
+    `, [item.id, item.product_name, tweetId, tweetUrl, item.generated_post, item.category]);
   }
 }
 
 function markAsIgnored(id) {
-  getDB().prepare(`UPDATE queue SET status = 'ignored' WHERE id = ?`).run(id);
+  runQuery(`UPDATE queue SET status = 'ignored' WHERE id = ?`, [id]);
 }
 
 function getPendingCount() {
-  return getDB().prepare(`SELECT COUNT(*) as count FROM queue WHERE status = 'pending'`).get().count;
+  const row = getOne(`SELECT COUNT(*) as count FROM queue WHERE status = 'pending'`);
+  return row ? row.count : 0;
 }
 
 function getQueueList() {
-  return getDB().prepare(`SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC`).all();
+  return getAll(`SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC`);
+}
+
+function getQueueItemById(id) {
+  return getOne(`SELECT * FROM queue WHERE id = ?`, [id]);
+}
+
+function updateQueuePost(id, newPost) {
+  runQuery(`UPDATE queue SET generated_post = ? WHERE id = ?`, [newPost, id]);
+}
+
+function clearPendingQueue() {
+  runQuery(`UPDATE queue SET status = 'ignored' WHERE status = 'pending'`);
 }
 
 // Daily count
 function getTodayCount() {
   const today = new Date().toISOString().split('T')[0];
-  const row = getDB().prepare(`SELECT count FROM daily_count WHERE date = ?`).get(today);
+  const row = getOne(`SELECT count FROM daily_count WHERE date = ?`, [today]);
   return row ? row.count : 0;
 }
 
 function incrementTodayCount() {
   const today = new Date().toISOString().split('T')[0];
-  getDB().prepare(`
+  runQuery(`
     INSERT INTO daily_count (date, count) VALUES (?, 1)
     ON CONFLICT(date) DO UPDATE SET count = count + 1
-  `).run(today);
+  `, [today]);
 }
 
 // Sessions
 function getSession(chatId) {
-  return getDB().prepare(`SELECT * FROM sessions WHERE chat_id = ?`).get(String(chatId));
+  return getOne(`SELECT * FROM sessions WHERE chat_id = ?`, [String(chatId)]);
 }
 
 function setSession(chatId, data) {
   const existing = getSession(chatId);
+  const pendingProduct = data.pendingProduct ? JSON.stringify(data.pendingProduct) : null;
   if (existing) {
-    getDB().prepare(`
-      UPDATE sessions SET state = ?, pending_post = ?, pending_product = ?, updated_at = CURRENT_TIMESTAMP
+    runQuery(`
+      UPDATE sessions SET state = ?, pending_post = ?, pending_product = ?, updated_at = datetime('now')
       WHERE chat_id = ?
-    `).run(data.state || 'idle', data.pendingPost || null, data.pendingProduct ? JSON.stringify(data.pendingProduct) : null, String(chatId));
+    `, [data.state || 'idle', data.pendingPost || null, pendingProduct, String(chatId)]);
   } else {
-    getDB().prepare(`
+    runQuery(`
       INSERT INTO sessions (chat_id, state, pending_post, pending_product) VALUES (?, ?, ?, ?)
-    `).run(String(chatId), data.state || 'idle', data.pendingPost || null, data.pendingProduct ? JSON.stringify(data.pendingProduct) : null);
+    `, [String(chatId), data.state || 'idle', data.pendingPost || null, pendingProduct]);
   }
 }
 
 // History
 function getRecentPosts(limit = 10) {
-  return getDB().prepare(`SELECT * FROM posted_history ORDER BY posted_at DESC LIMIT ?`).all(limit);
+  return getAll(`SELECT * FROM posted_history ORDER BY posted_at DESC LIMIT ?`, [limit]);
 }
 
-function wasPostedRecently(productName, hoursAgo = 24) {
+function wasPostedRecently(productName, hoursAgo = 48) {
   const threshold = new Date(Date.now() - hoursAgo * 3600 * 1000).toISOString();
-  const row = getDB().prepare(`
+  const row = getOne(`
     SELECT id FROM posted_history WHERE product_name = ? AND posted_at > ?
-  `).get(productName, threshold);
+  `, [productName, threshold]);
   return !!row;
 }
 
 module.exports = {
   initDB, getDB,
-  addToQueue, getNextInQueue, markAsPosted, markAsIgnored, getPendingCount, getQueueList,
+  addToQueue, getNextInQueue, markAsPosted, markAsIgnored,
+  getPendingCount, getQueueList, getQueueItemById, updateQueuePost, clearPendingQueue,
   getTodayCount, incrementTodayCount,
   getSession, setSession,
   getRecentPosts, wasPostedRecently
