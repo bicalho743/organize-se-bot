@@ -55,6 +55,8 @@ async function autoPost() {
 }
 
 async function autoFetch() {
+  const shopeeOk = ['SHOPEE_APP_ID','SHOPEE_SECRET_KEY','SHOPEE_ACCESS_TOKEN'].every(k => process.env[k]);
+  if (!shopeeOk) { console.log('[Scheduler] Shopee nao configurada, pulando busca.'); return; }
   console.log('[Scheduler] Buscando novas promoções Shopee automaticamente...');
 
   try {

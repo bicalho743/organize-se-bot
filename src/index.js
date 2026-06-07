@@ -16,15 +16,21 @@ const REQUIRED_ENV = [
   'TWITTER_ACCESS_SECRET',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
-  'SHOPEE_APP_ID',
-  'SHOPEE_SECRET_KEY',
-  'SHOPEE_ACCESS_TOKEN',
 ];
+
+// Shopee é opcional — bot funciona sem ela via posts manuais pelo Telegram
+const OPTIONAL_SHOPEE = ['SHOPEE_APP_ID', 'SHOPEE_SECRET_KEY', 'SHOPEE_ACCESS_TOKEN'];
 
 const missing = REQUIRED_ENV.filter(key => !process.env[key]);
 if (missing.length > 0) {
   console.error('❌ Variáveis de ambiente ausentes:', missing.join(', '));
   process.exit(1);
+}
+
+const shopeeConfigured = OPTIONAL_SHOPEE.every(key => process.env[key]);
+if (!shopeeConfigured) {
+  console.warn('⚠️  Shopee API não configurada. Busca automática desativada.');
+  console.warn('   Configure SHOPEE_APP_ID, SHOPEE_SECRET_KEY e SHOPEE_ACCESS_TOKEN para ativar.');
 }
 
 // =============================================
@@ -51,6 +57,7 @@ async function main() {
     res.json({
       status: 'ok',
       bot: 'Organize-se',
+      shopee: shopeeConfigured ? 'configurada' : 'não configurada',
       uptime: process.uptime(),
       queue: getPendingCount(),
       postsToday: getTodayCount(),
@@ -63,6 +70,9 @@ async function main() {
   });
 
   console.log('✅ Organize-se Bot online e rodando!');
+  if (!shopeeConfigured) {
+    console.log('💡 Dica: envie promoções manualmente pelo Telegram para começar a postar.');
+  }
 }
 
 main().catch(err => {
