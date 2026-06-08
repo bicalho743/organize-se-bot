@@ -17,348 +17,199 @@ function initTelegram() {
     console.error('[Telegram] Polling error:', err.message);
   });
 
-  // =============================================
-  // COMANDOS
-  // =============================================
-
+  // /start
   bot.onText(/\/start/, (msg) => {
     if (!isAuthorized(msg)) return;
-    bot.sendMessage(CHAT_ID, `🤖 *Organize-se Bot online*
-
-Comandos disponíveis:
-/status — situação do bot
-/fila — ver fila de posts pendentes
-/buscar — buscar promoções da Shopee agora
-/postar — postar próximo da fila no X
-/limite — ver/alterar posts diários
-/post [texto] — post manual no X
-/reply [tweet_id] [texto] — reply em tweet
-/limpar — limpar fila pendente
-
-Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse_mode: 'Markdown' });
+    bot.sendMessage(CHAT_ID,
+      '*Organize-se Bot online*\n\n' +
+      'Comandos:\n' +
+      '/status — situacao do bot\n' +
+      '/fila — ver fila pendente\n' +
+      '/buscar — buscar promocoes Shopee\n' +
+      '/postar — postar proximo da fila\n' +
+      '/limite — ver/alterar posts diarios\n' +
+      '/post [texto] — post manual no X\n' +
+      '/limpar — limpar fila\n\n' +
+      'Ou mande um link e eu gero os posts automaticamente.',
+      { parse_mode: 'Markdown' }
+    );
   });
 
+  // /status
   bot.onText(/\/status/, (msg) => {
     if (!isAuthorized(msg)) return;
     const pending = db.getPendingCount();
     const todayCount = db.getTodayCount();
     const recentPosts = db.getRecentPosts(3);
-
-    let text = `📊 *Status do Bot*\n\n`;
-    text += `Posts hoje: ${todayCount}/${MAX_DAILY_POSTS}\n`;
-    text += `Na fila: ${pending} produto(s)\n\n`;
-
+    let text = '*Status do Bot*\n\n';
+    text += 'Posts hoje: ' + todayCount + '/' + MAX_DAILY_POSTS + '\n';
+    text += 'Na fila: ' + pending + ' produto(s)\n\n';
     if (recentPosts.length > 0) {
-      text += `*Últimos posts:*\n`;
-      recentPosts.forEach(p => {
+      text += '*Ultimos posts:*\n';
+      recentPosts.forEach(function(p) {
         const time = new Date(p.posted_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        text += `• [${time}] ${p.product_name?.substring(0, 40)}...\n`;
+        text += '* [' + time + '] ' + (p.product_name || '').substring(0, 40) + '\n';
       });
     }
-
     bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
   });
 
+  // /fila
   bot.onText(/\/fila/, (msg) => {
     if (!isAuthorized(msg)) return;
     const queue = db.getQueueList();
-
     if (queue.length === 0) {
-      bot.sendMessage(CHAT_ID, '📭 Fila vazia. Use /buscar para trazer promoções.');
+      bot.sendMessage(CHAT_ID, 'Fila vazia. Use /buscar para trazer promocoes.');
       return;
     }
-
-    let text = `📋 *Fila de posts (${queue.length})*\n\n`;
-    queue.forEach((item, i) => {
-      text += `${i + 1}. ${item.product_name?.substring(0, 50)}\n`;
-      text += `   R$${item.price?.toFixed(2)} (-${item.discount_pct}%)\n`;
+    let text = '*Fila de posts (' + queue.length + ')*\n\n';
+    queue.forEach(function(item, i) {
+      const price = item.price ? 'R$' + Number(item.price).toFixed(2) : 'sem preco';
+      text += (i + 1) + '. ' + (item.product_name || '').substring(0, 50) + '\n';
+      text += '   ' + price + ' (-' + item.discount_pct + '%)\n';
     });
-
     bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
   });
 
+  // /buscar
   bot.onText(/\/buscar/, async (msg) => {
     if (!isAuthorized(msg)) return;
-    bot.sendMessage(CHAT_ID, '🔍 Buscando promoções na Shopee...');
-
+    bot.sendMessage(CHAT_ID, 'Buscando promocoes na Shopee...');
     try {
       const deals = await fetchBestDeals(8);
-
       if (deals.length === 0) {
-        bot.sendMessage(CHAT_ID, '😕 Nenhuma promoção qualificada encontrada. Tente de novo em instantes.');
+        bot.sendMessage(CHAT_ID, 'Nenhuma promocao qualificada encontrada.');
         return;
       }
-
       let added = 0;
       for (const product of deals) {
-        if (db.wasPostedRecently(product.name)) {
-          console.log(`[Telegram] Pulando produto já postado: ${product.name}`);
-          continue;
-        }
-
-        const generatedPost = await generatePost(product);
-        db.addToQueue({ ...product, generatedPost });
+        if (db.wasPostedRecently(product.name)) continue;
+        const posts = await generatePost(product);
+        db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
         added++;
       }
-
-      bot.sendMessage(CHAT_ID, `✅ ${added} produtos adicionados à fila.\nUse /fila para ver ou /postar para publicar agora.`);
+      bot.sendMessage(CHAT_ID, added + ' produtos adicionados a fila.\nUse /fila ou /postar.');
     } catch (err) {
-      console.error('[Telegram] Erro no /buscar:', err);
-      bot.sendMessage(CHAT_ID, `❌ Erro ao buscar: ${err.message}`);
+      bot.sendMessage(CHAT_ID, 'Erro ao buscar: ' + err.message);
     }
   });
 
+  // /postar
   bot.onText(/\/postar/, async (msg) => {
     if (!isAuthorized(msg)) return;
-
     const todayCount = db.getTodayCount();
     if (todayCount >= MAX_DAILY_POSTS) {
-      bot.sendMessage(CHAT_ID, `⛔ Limite diário atingido (${todayCount}/${MAX_DAILY_POSTS}).\nAjuste com /limite.`);
+      bot.sendMessage(CHAT_ID, 'Limite diario atingido (' + todayCount + '/' + MAX_DAILY_POSTS + ').');
       return;
     }
-
     const next = db.getNextInQueue();
     if (!next) {
-      bot.sendMessage(CHAT_ID, '📭 Fila vazia. Use /buscar para trazer promoções.');
+      bot.sendMessage(CHAT_ID, 'Fila vazia. Use /buscar.');
       return;
     }
-
     await presentPostForApproval(next);
   });
 
+  // /limite N
   bot.onText(/\/limite (.+)/, (msg, match) => {
     if (!isAuthorized(msg)) return;
     const newLimit = parseInt(match[1]);
     if (isNaN(newLimit) || newLimit < 1 || newLimit > 50) {
-      bot.sendMessage(CHAT_ID, '⚠️ Valor inválido. Use um número entre 1 e 50.');
+      bot.sendMessage(CHAT_ID, 'Valor invalido. Use um numero entre 1 e 50.');
       return;
     }
     process.env.MAX_DAILY_POSTS = String(newLimit);
-    bot.sendMessage(CHAT_ID, `✅ Limite diário ajustado para ${newLimit} posts.`);
+    bot.sendMessage(CHAT_ID, 'Limite diario ajustado para ' + newLimit + ' posts.');
   });
 
+  // /limite
   bot.onText(/\/limite$/, (msg) => {
     if (!isAuthorized(msg)) return;
     const todayCount = db.getTodayCount();
-    bot.sendMessage(CHAT_ID, `📊 Posts hoje: ${todayCount}/${MAX_DAILY_POSTS}\n\nPara alterar: /limite [número]`);
+    bot.sendMessage(CHAT_ID, 'Posts hoje: ' + todayCount + '/' + MAX_DAILY_POSTS + '\n\nPara alterar: /limite [numero]');
   });
 
-  // Post manual
+  // /post texto
   bot.onText(/\/post (.+)/, async (msg, match) => {
     if (!isAuthorized(msg)) return;
     const text = match[1].trim();
     if (text.length > 500) {
-      bot.sendMessage(CHAT_ID, `⚠️ Post muito longo (${text.length} chars). Máximo 500.`);
+      bot.sendMessage(CHAT_ID, 'Post muito longo (' + text.length + ' chars). Maximo 500.');
       return;
     }
-
     try {
-      const { tweetUrl } = await postTweet(text);
+      const result = await postTweet(text);
       db.incrementTodayCount();
-      bot.sendMessage(CHAT_ID, `✅ Postado!\n${tweetUrl}`);
+      bot.sendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl);
     } catch (err) {
-      bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+      bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
     }
   });
 
-  // Reply manual
+  // /reply tweetId texto
   bot.onText(/\/reply (\d+) (.+)/, async (msg, match) => {
     if (!isAuthorized(msg)) return;
     const tweetId = match[1];
     const text = match[2].trim();
-
     try {
-      const { tweetUrl } = await postReply(text, tweetId);
-      bot.sendMessage(CHAT_ID, `✅ Reply postado!\n${tweetUrl}`);
+      const result = await postReply(text, tweetId);
+      bot.sendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
     } catch (err) {
-      bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+      bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
     }
   });
 
+  // /limpar
   bot.onText(/\/limpar/, (msg) => {
     if (!isAuthorized(msg)) return;
-    
     db.clearPendingQueue();
-    bot.sendMessage(CHAT_ID, '🗑️ Fila limpa.');
+    bot.sendMessage(CHAT_ID, 'Fila limpa.');
   });
 
-  // =============================================
-  // MENSAGEM LIVRE — gera post de texto bruto
-  // =============================================
+  // Mensagem livre
   bot.on('message', async (msg) => {
     if (!isAuthorized(msg)) return;
-    if (msg.text?.startsWith('/')) return;
+    if (msg.text && msg.text.startsWith('/')) return;
+    const text = (msg.text || '').trim();
+    if (!text || text.length < 5) return;
 
-    const text = msg.text?.trim();
-    if (!text || text.length < 10) return;
-
-    // Verifica se é REPLY: [id] formato
+    // REPLY: tweetId contexto
     if (text.toUpperCase().startsWith('REPLY:')) {
       const parts = text.replace(/^REPLY:\s*/i, '').split(' ');
       const tweetId = parts[0];
       const context = parts.slice(1).join(' ');
-
-      bot.sendMessage(CHAT_ID, '💬 Gerando reply...');
+      bot.sendMessage(CHAT_ID, 'Gerando reply...');
       try {
-        const replyText = await generateReply(context || text, `Reply para tweet ${tweetId}`);
-        db.setSession(CHAT_ID, { state: 'waiting_reply_approval', pendingPost: replyText, pendingProduct: { tweetId } });
+        const replyText = await generateReply(context || text, 'Reply para tweet ' + tweetId);
+        db.setSession(CHAT_ID, { state: 'waiting_reply_approval', pendingPost: replyText, pendingProduct: { tweetId: tweetId } });
         await presentReplyForApproval(replyText, tweetId);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
       return;
     }
 
-    // Detecta se é uma URL — extrai produto automaticamente
+    // URL — extrai produto e gera posts
     if (isUrl(text)) {
-      bot.sendMessage(CHAT_ID, '🔗 Link detectado! Lendo produto...');
+      bot.sendMessage(CHAT_ID, 'Link detectado! Lendo produto...');
       try {
         const product = await extractProductFromUrl(text);
-        bot.sendMessage(CHAT_ID,
-          `📦 *${product.name?.substring(0, 80)}*\n` +
-          `💰 ${product.price ? 'R
-  });
-
-  // =============================================
-  // CALLBACKS DOS BOTÕES
-  // =============================================
-  bot.on('callback_query', async (query) => {
-    const data = query.data;
-    const [action, id] = data.split('::');
-
-    bot.answerCallbackQuery(query.id);
-
-    if (action === 'post_approve') {
-      const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
-
-      try {
-        const { postWithReply } = require('./scheduler');
-        const { tweetId, tweetUrl } = await postWithReply(item);
-        db.markAsPosted(id, tweetId, tweetUrl);
-        db.incrementTodayCount();
-        bot.sendMessage(CHAT_ID, `✅ Postado!\n${tweetUrl}\n\nPosts hoje: ${db.getTodayCount()}/${MAX_DAILY_POSTS}`);
-      } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro ao postar: ${err.message}`);
-      }
-
-    } else if (action === 'post_ignore') {
-      db.markAsIgnored(id);
-      bot.sendMessage(CHAT_ID, `🗑️ Post ignorado.\nFila restante: ${db.getPendingCount()} item(s).`);
-
-    } else if (action === 'post_regen') {
-      const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
-
-      bot.sendMessage(CHAT_ID, '🔄 Regenerando post...');
-      try {
-        const product = {
-          name: item.product_name,
-          price: item.price,
-          originalPrice: item.original_price,
-          discountPct: item.discount_pct,
-          affiliateLink: item.affiliate_link,
-          rating: item.rating,
-          salesCount: item.sales_count,
-        };
-        const newPosts = await generatePost(product);
-        db.updateQueuePost(id, JSON.stringify(newPosts));
-        const updated = db.getQueueItemById(id);
-        await presentPostForApproval(updated);
-      } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
-      }
-
-    } else if (action === 'reply_approve') {
-      const session = db.getSession(CHAT_ID);
-      if (!session) return;
-      const { pendingPost, pendingProduct } = session;
-      const product = JSON.parse(pendingProduct || '{}');
-
-      try {
-        const { tweetUrl } = await postReply(pendingPost, product.tweetId);
-        db.setSession(CHAT_ID, { state: 'idle' });
-        bot.sendMessage(CHAT_ID, `✅ Reply postado!\n${tweetUrl}`);
-      } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
-      }
-
-    } else if (action === 'reply_ignore') {
-      db.setSession(CHAT_ID, { state: 'idle' });
-      bot.sendMessage(CHAT_ID, '🗑️ Reply ignorado.');
-    }
-  });
-
-  console.log('[Telegram] Bot iniciado e escutando.');
-  return bot;
-}
-
-// =============================================
-// HELPERS
-// =============================================
-
-async function presentPostForApproval(item) {
-  let posts;
-  try { posts = JSON.parse(item.generated_post); } catch { posts = { main: item.generated_post, reply: '' }; }
-  const text = `📦 *${item.product_name?.substring(0, 60)}*\n` +
-    `💰 R${item.price?.toFixed(2)} (-${item.discount_pct}%)\n\n` +
-    `🐦 *Post principal:*\n\`\`\`\n${posts.main}\n\`\`\`\n\n` +
-    `💬 *Reply (2min depois):*\n\`\`\`\n${posts.reply}\n\`\`\``;
-
-  const keyboard = {
-    inline_keyboard: [[
-      { text: '✅ Postar no X', callback_data: `post_approve::${item.id}` },
-      { text: '🔄 Regenerar', callback_data: `post_regen::${item.id}` },
-      { text: '🗑️ Ignorar', callback_data: `post_ignore::${item.id}` },
-    ]],
-  };
-
-  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
-}
-
-async function presentReplyForApproval(replyText, tweetId) {
-  const text = `💬 *Reply gerado:*\n\`\`\`\n${replyText}\n\`\`\`\nPara tweet: ${tweetId}`;
-  const keyboard = {
-    inline_keyboard: [[
-      { text: '✅ Postar reply', callback_data: `reply_approve::${tweetId}` },
-      { text: '🗑️ Ignorar', callback_data: `reply_ignore::${tweetId}` },
-    ]],
-  };
-  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
-}
-
-function isAuthorized(msg) {
-  return String(msg.chat.id) === String(CHAT_ID);
-}
-
-function extractUrlFromText(text) {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const match = text.match(urlRegex);
-  return match ? match[0] : null;
-}
-
-function notifyTelegram(message) {
-  if (!bot) return;
-  bot.sendMessage(CHAT_ID, message, { parse_mode: 'Markdown' });
-}
-
-module.exports = { initTelegram, notifyTelegram };
- + product.price.toFixed(2) : 'preço não encontrado'}` +
-          `${product.discountPct ? ' (-' + product.discountPct + '%)' : ''}\n\n⚙️ Gerando posts...`,
-          { parse_mode: 'Markdown' }
-        );
+        const priceInfo = product.price
+          ? 'R$' + product.price.toFixed(2) + (product.discountPct ? ' (-' + product.discountPct + '%)' : '')
+          : 'preco nao encontrado';
+        bot.sendMessage(CHAT_ID, (product.name || 'Produto').substring(0, 80) + '\n' + priceInfo + '\n\nGerando posts...');
         const posts = await generatePost(product);
-        const id = db.addToQueue({ ...product, generatedPost: JSON.stringify(posts) });
+        const id = db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
         const item = db.getQueueItemById(id);
         await presentPostForApproval(item);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro ao processar link: ${err.message}`);
+        bot.sendMessage(CHAT_ID, 'Erro ao processar link: ' + err.message);
       }
       return;
     }
 
-    // Trata como dados brutos de promoção (texto livre)
-    bot.sendMessage(CHAT_ID, '⚙️ Gerando post a partir do texto...');
+    // Texto livre — gera post a partir dos dados
+    bot.sendMessage(CHAT_ID, 'Gerando post a partir do texto...');
     try {
       const urlInText = extractUrlFromText(text);
       const fakeProduct = {
@@ -372,46 +223,44 @@ module.exports = { initTelegram, notifyTelegram };
         category: null,
       };
       const posts = await generatePost(fakeProduct);
-      const id = db.addToQueue({ ...fakeProduct, generatedPost: JSON.stringify(posts) });
+      const id = db.addToQueue(Object.assign({}, fakeProduct, { generatedPost: JSON.stringify(posts) }));
       const item = db.getQueueItemById(id);
       await presentPostForApproval(item);
     } catch (err) {
-      bot.sendMessage(CHAT_ID, `❌ Erro ao gerar post: ${err.message}`);
+      bot.sendMessage(CHAT_ID, 'Erro ao gerar post: ' + err.message);
     }
   });
 
-  // =============================================
-  // CALLBACKS DOS BOTÕES
-  // =============================================
+  // Callbacks dos botoes
   bot.on('callback_query', async (query) => {
     const data = query.data;
-    const [action, id] = data.split('::');
+    const parts = data.split('::');
+    const action = parts[0];
+    const id = parts[1];
 
     bot.answerCallbackQuery(query.id);
 
     if (action === 'post_approve') {
       const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
-
+      if (!item) { bot.sendMessage(CHAT_ID, 'Item nao encontrado.'); return; }
       try {
         const { postWithReply } = require('./scheduler');
-        const { tweetId, tweetUrl } = await postWithReply(item);
-        db.markAsPosted(id, tweetId, tweetUrl);
+        const result = await postWithReply(item);
+        db.markAsPosted(id, result.tweetId, result.tweetUrl);
         db.incrementTodayCount();
-        bot.sendMessage(CHAT_ID, `✅ Postado!\n${tweetUrl}\n\nPosts hoje: ${db.getTodayCount()}/${MAX_DAILY_POSTS}`);
+        bot.sendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl + '\n\nPosts hoje: ' + db.getTodayCount() + '/' + MAX_DAILY_POSTS);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro ao postar: ${err.message}`);
+        bot.sendMessage(CHAT_ID, 'Erro ao postar: ' + err.message);
       }
 
     } else if (action === 'post_ignore') {
       db.markAsIgnored(id);
-      bot.sendMessage(CHAT_ID, `🗑️ Post ignorado.\nFila restante: ${db.getPendingCount()} item(s).`);
+      bot.sendMessage(CHAT_ID, 'Post ignorado. Fila restante: ' + db.getPendingCount());
 
     } else if (action === 'post_regen') {
       const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
-
-      bot.sendMessage(CHAT_ID, '🔄 Regenerando post...');
+      if (!item) { bot.sendMessage(CHAT_ID, 'Item nao encontrado.'); return; }
+      bot.sendMessage(CHAT_ID, 'Regenerando post...');
       try {
         const product = {
           name: item.product_name,
@@ -427,26 +276,25 @@ module.exports = { initTelegram, notifyTelegram };
         const updated = db.getQueueItemById(id);
         await presentPostForApproval(updated);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
 
     } else if (action === 'reply_approve') {
       const session = db.getSession(CHAT_ID);
       if (!session) return;
-      const { pendingPost, pendingProduct } = session;
-      const product = JSON.parse(pendingProduct || '{}');
-
+      const pendingPost = session.pending_post;
+      const pendingProduct = JSON.parse(session.pending_product || '{}');
       try {
-        const { tweetUrl } = await postReply(pendingPost, product.tweetId);
+        const result = await postReply(pendingPost, pendingProduct.tweetId);
         db.setSession(CHAT_ID, { state: 'idle' });
-        bot.sendMessage(CHAT_ID, `✅ Reply postado!\n${tweetUrl}`);
+        bot.sendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
 
     } else if (action === 'reply_ignore') {
       db.setSession(CHAT_ID, { state: 'idle' });
-      bot.sendMessage(CHAT_ID, '🗑️ Reply ignorado.');
+      bot.sendMessage(CHAT_ID, 'Reply ignorado.');
     }
   });
 
@@ -454,35 +302,38 @@ module.exports = { initTelegram, notifyTelegram };
   return bot;
 }
 
-// =============================================
-// HELPERS
-// =============================================
-
+// Apresenta post para aprovacao
 async function presentPostForApproval(item) {
   let posts;
-  try { posts = JSON.parse(item.generated_post); } catch { posts = { main: item.generated_post, reply: '' }; }
-  const text = `📦 *${item.product_name?.substring(0, 60)}*\n` +
-    `💰 R${item.price?.toFixed(2)} (-${item.discount_pct}%)\n\n` +
-    `🐦 *Post principal:*\n\`\`\`\n${posts.main}\n\`\`\`\n\n` +
-    `💬 *Reply (2min depois):*\n\`\`\`\n${posts.reply}\n\`\`\``;
+  try {
+    posts = JSON.parse(item.generated_post);
+  } catch (e) {
+    posts = { main: item.generated_post, reply: '' };
+  }
+  const price = item.price ? 'R$' + Number(item.price).toFixed(2) : 'sem preco';
+  const text =
+    '*' + (item.product_name || 'Produto').substring(0, 60) + '*\n' +
+    price + ' (-' + item.discount_pct + '%)\n\n' +
+    '*Post principal:*\n```\n' + (posts.main || '') + '\n```\n\n' +
+    '*Reply (2min depois):*\n```\n' + (posts.reply || '') + '\n```';
 
   const keyboard = {
     inline_keyboard: [[
-      { text: '✅ Postar no X', callback_data: `post_approve::${item.id}` },
-      { text: '🔄 Regenerar', callback_data: `post_regen::${item.id}` },
-      { text: '🗑️ Ignorar', callback_data: `post_ignore::${item.id}` },
+      { text: 'Postar no X', callback_data: 'post_approve::' + item.id },
+      { text: 'Regenerar', callback_data: 'post_regen::' + item.id },
+      { text: 'Ignorar', callback_data: 'post_ignore::' + item.id },
     ]],
   };
-
   bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
+// Apresenta reply para aprovacao
 async function presentReplyForApproval(replyText, tweetId) {
-  const text = `💬 *Reply gerado:*\n\`\`\`\n${replyText}\n\`\`\`\nPara tweet: ${tweetId}`;
+  const text = '*Reply gerado:*\n```\n' + replyText + '\n```\nPara tweet: ' + tweetId;
   const keyboard = {
     inline_keyboard: [[
-      { text: '✅ Postar reply', callback_data: `reply_approve::${tweetId}` },
-      { text: '🗑️ Ignorar', callback_data: `reply_ignore::${tweetId}` },
+      { text: 'Postar reply', callback_data: 'reply_approve::' + tweetId },
+      { text: 'Ignorar', callback_data: 'reply_ignore::' + tweetId },
     ]],
   };
   bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
@@ -493,8 +344,7 @@ function isAuthorized(msg) {
 }
 
 function extractUrlFromText(text) {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const match = text.match(urlRegex);
+  const match = text.match(/(https?:\/\/[^\s]+)/);
   return match ? match[0] : null;
 }
 

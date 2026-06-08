@@ -136,7 +136,7 @@ function ensureLinkInReply(reply, link) {
   if (!link) return reply;
   if (reply.includes(link)) return reply;
   // Remove qualquer URL parcial que o GPT possa ter colocado errada
-  const withoutBadUrl = reply.replace(/https?://S+/g, '').trim();
+  const withoutBadUrl = reply.replace(/https?:\/\/\S+/g, '').trim();
   return withoutBadUrl + '\n' + link;
 }
 
