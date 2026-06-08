@@ -16,19 +16,26 @@ const TEMPERATURE_CRITIC = 0.3;
 async function runWriter(product) {
   const systemPrompt = getSystemPrompt();
 
-  const userPrompt = `Gere DOIS textos para o X sobre esta promoção:
+  const link = product.affiliateLink || '';
+  const priceStr = product.price ? `R${product.price.toFixed(2)}` : 'preço não informado';
+  const originalStr = product.originalPrice > 0 ? `R${product.originalPrice.toFixed(2)}` : null;
+  const discountStr = product.discountPct ? `${product.discountPct}%` : null;
 
-Produto: ${product.name}
-Preço atual: R$${product.price?.toFixed(2)}
-Preço original: ${product.originalPrice > 0 ? 'R$' + product.originalPrice.toFixed(2) : 'não disponível'}
-Desconto: ${product.discountPct}%
-Avaliação: ${product.rating} estrelas
-Link afiliado: ${product.affiliateLink}
+  const userPrompt = `Gere DOIS textos para o X sobre esta promoção.
 
-Retorne EXATAMENTE neste formato JSON (sem markdown, sem explicação):
+DADOS DO PRODUTO:
+- Nome: ${product.name}
+- Preço: ${priceStr}${originalStr ? ' (antes: ' + originalStr + ')' : ''}${discountStr ? ' — desconto: ' + discountStr : ''}
+- Link: ${link}
+
+REGRAS OBRIGATÓRIAS:
+1. "main" = curiosidade relacionada ao produto/tema. SEM link. SEM mencionar marca ou preço. SEM nomear o produto diretamente.
+2. "reply" = promoção direta. DEVE conter o link EXATAMENTE como fornecido: ${link}
+
+Retorne EXATAMENTE este JSON (sem markdown, sem explicação, sem aspas extras):
 {
-  "main": "texto da curiosidade aqui — sem link, sem produto direto",
-  "reply": "texto da promoção aqui — com link"
+  "main": "curiosidade aqui — sem link, sem preço, sem nomear produto",
+  "reply": "promoção aqui — deve terminar com ${link}"
 }`;
 
   const res = await openai.chat.completions.create({
@@ -56,9 +63,10 @@ Analise estes dois posts e responda com JSON exato (sem markdown):
   "issues": ["lista de problemas"]
 }
 
-REJEITE se:
-- Post principal tiver link ou mencionar produto/preço diretamente
-- Reply não tiver o link da promoção
+REJEITE APENAS se:
+- Post principal tiver um link (URL) — isso é proibido
+- Post principal mencionar preço ou valor monetário
+- Reply NÃO tiver uma URL/link
 - Tom for de loja, influencer ou robô
 - Fake urgency ("últimas unidades!", "corre!")
 - Maiúsculas para gritar
