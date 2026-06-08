@@ -131,12 +131,24 @@ Retorne EXATAMENTE neste formato JSON (sem markdown):
   return JSON.parse(clean);
 }
 
+// Garante que o link está no reply — injeta se o GPT esqueceu
+function ensureLinkInReply(reply, link) {
+  if (!link) return reply;
+  if (reply.includes(link)) return reply;
+  // Remove qualquer URL parcial que o GPT possa ter colocado errada
+  const withoutBadUrl = reply.replace(/https?://S+/g, '').trim();
+  return withoutBadUrl + '\n' + link;
+}
+
 // Pipeline completo — retorna { main, reply }
 async function generatePost(product) {
   console.log(`[OpenAI] Gerando post para: ${product.name}`);
 
   let posts = await runWriter(product);
   console.log('[OpenAI] Escritor — main:', posts.main?.substring(0, 60) + '...');
+
+  // Força o link no reply antes de criticar
+  posts.reply = ensureLinkInReply(posts.reply, product.affiliateLink);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     const critique = await runCritic(posts);
@@ -146,8 +158,13 @@ async function generatePost(product) {
 
     if (attempt < 2) {
       posts = await runEditor(posts, critique.issues);
+      // Garante link novamente após edição
+      posts.reply = ensureLinkInReply(posts.reply, product.affiliateLink);
     }
   }
+
+  // Garante link uma última vez antes de retornar
+  posts.reply = ensureLinkInReply(posts.reply, product.affiliateLink);
 
   return posts; // { main: string, reply: string }
 }
