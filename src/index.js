@@ -4,6 +4,7 @@ const express = require('express');
 const { initDB } = require('./modules/db');
 const { initTelegram } = require('./modules/telegram');
 const { initScheduler } = require('./modules/scheduler');
+const { initTwitter } = require('./modules/twitter');
 
 // =============================================
 // VALIDAÇÃO DE VARIÁVEIS DE AMBIENTE
@@ -44,6 +45,7 @@ async function main() {
   await initDB();
 
   // 2. Telegram (cockpit operacional)
+  await initTwitter();
   initTelegram();
 
   // 3. Agendador automático
