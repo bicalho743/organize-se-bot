@@ -244,7 +244,8 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
       if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
 
       try {
-        const { tweetId, tweetUrl } = await postTweet(item.generated_post);
+        const { postWithReply } = require('./scheduler');
+        const { tweetId, tweetUrl } = await postWithReply(item);
         db.markAsPosted(id, tweetId, tweetUrl);
         db.incrementTodayCount();
         bot.sendMessage(CHAT_ID, `✅ Postado!\n${tweetUrl}\n\nPosts hoje: ${db.getTodayCount()}/${MAX_DAILY_POSTS}`);
@@ -271,8 +272,8 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
           rating: item.rating,
           salesCount: item.sales_count,
         };
-        const newPost = await generatePost(product);
-        db.updateQueuePost(id, newPost);
+        const newPosts = await generatePost(product);
+        db.updateQueuePost(id, JSON.stringify(newPosts));
         const updated = db.getQueueItemById(id);
         await presentPostForApproval(updated);
       } catch (err) {
@@ -308,11 +309,12 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
 // =============================================
 
 async function presentPostForApproval(item) {
-  const text = `📦 *${item.product_name?.substring(0, 60)}*\n\n` +
-    `💰 R$${item.price?.toFixed(2)} (-${item.discount_pct}%)\n` +
-    `⭐ ${item.rating} | 📦 ${item.sales_count} vendas\n\n` +
-    `📝 *Post gerado:*\n\`\`\`\n${item.generated_post}\n\`\`\`\n` +
-    `📏 ${item.generated_post?.length} chars`;
+  let posts;
+  try { posts = JSON.parse(item.generated_post); } catch { posts = { main: item.generated_post, reply: '' }; }
+  const text = `📦 *${item.product_name?.substring(0, 60)}*\n` +
+    `💰 R${item.price?.toFixed(2)} (-${item.discount_pct}%)\n\n` +
+    `🐦 *Post principal:*\n\`\`\`\n${posts.main}\n\`\`\`\n\n` +
+    `💬 *Reply (2min depois):*\n\`\`\`\n${posts.reply}\n\`\`\``;
 
   const keyboard = {
     inline_keyboard: [[

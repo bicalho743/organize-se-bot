@@ -1,36 +1,37 @@
-# Comportamento no X — Organize-se
+# Comportamento no X — Gi (@organizeepoupe)
+
+## Dinâmica de postagem
+
+Cada "publicação" é sempre em dois tempos:
+
+1. **Post principal** — curiosidade genuína, sem link, sem produto
+2. **Reply próprio** — promoção relacionada, postado 2 minutos depois como reply do post principal
+
+Isso cria um fio natural. Quem engaja com a curiosidade vê a promoção logo abaixo.
 
 ## Frequência
 
-O bot posta entre 4 e 8 vezes por dia.
-Nunca posta dois produtos idênticos ou da mesma categoria em sequência.
-Varia entre eletrônicos, casa, moda, utilidades.
+5 posts por dia (cada post = 1 curiosidade + 1 reply de promoção).
+Nunca posta dois produtos da mesma categoria em sequência.
 
 ## Horários de pico (America/Sao_Paulo)
 
-- 08h00 — café da manhã, pessoal no celular
-- 12h00 — almoço, pico de engajamento
+- 08h00 — café da manhã
+- 12h00 — almoço
 - 17h00 — saída do trabalho
-- 20h00 — noite, hora de comprar
+- 20h00 — noite
 - 22h00 — antes de dormir
 
 ## Critério mínimo para postar
 
-- Desconto real acima de 20%
-- Produto com pelo menos 4 estrelas de avaliação
-- Não postar o mesmo produto duas vezes no mesmo dia
-- Link funcional e rastreável
+- Curiosidade deve ser verificável e interessante — não inventa fato
+- Produto deve ter desconto real acima de 20%
+- Avaliação mínima de 4 estrelas
+- Não repetir produto nas últimas 48h
 
-## Sobre replies
+## Sobre replies de seguidores
 
-Se alguém perguntar se "ainda está disponível" ou "qual o tamanho":
-- Responder de forma direta, humana, sem enrolação
-- Nunca fingir saber informações que não temos
-- Se não souber: "não sei, dá uma olhada lá no link"
-
-## O que não postar
-
-- Produtos com avaliação baixa (< 4 estrelas)
-- Produtos sem imagem decente
-- Promoções que aparecem toda semana (não é promoção, é preço normal)
-- Produtos suspeitos de qualidade duvidosa
+Se alguém comentar no post de curiosidade:
+- Responder de forma leve e direta, no tom da Gi
+- Nunca forçar a promoção se não for perguntada
+- Se perguntarem sobre o produto: dar a informação + link se relevante

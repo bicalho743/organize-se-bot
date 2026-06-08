@@ -1,30 +1,52 @@
 const cron = require('node-cron');
 const { fetchBestDeals } = require('./shopee');
 const { generatePost } = require('./openai');
-const { postTweet } = require('./twitter');
+const { postTweet, postReply } = require('./twitter');
 const db = require('./db');
 const { notifyTelegram } = require('./telegram');
 
 const TZ = 'America/Sao_Paulo';
 
-// Horários de postagem automática (Brasília)
 const POST_SCHEDULES = [
-  '0 8 * * *',   // 08:00
-  '0 12 * * *',  // 12:00
-  '0 17 * * *',  // 17:00
-  '0 20 * * *',  // 20:00
-  '0 22 * * *',  // 22:00
+  '0 8 * * *',
+  '0 12 * * *',
+  '0 17 * * *',
+  '0 20 * * *',
+  '0 22 * * *',
 ];
 
-// Busca promos da Shopee 3x por dia e abastece a fila
 const FETCH_SCHEDULES = [
-  '0 7 * * *',   // 07:00 — abastece para o dia
-  '30 11 * * *', // 11:30 — reabastece pro meio-dia
-  '0 16 * * *',  // 16:00 — reabastece pra tarde/noite
+  '0 7 * * *',
+  '30 11 * * *',
+  '0 16 * * *',
 ];
+
+// Posta curiosidade + reply de promoção com 2min de intervalo
+async function postWithReply(item) {
+  let posts;
+  try {
+    posts = JSON.parse(item.generated_post);
+  } catch {
+    // fallback para formato antigo (string simples)
+    posts = { main: item.generated_post, reply: null };
+  }
+
+  // Posta o post principal
+  const { tweetId, tweetUrl } = await postTweet(posts.main);
+  console.log(`[Scheduler] Post principal: ${tweetUrl}`);
+
+  // Aguarda 2 minutos e posta o reply com a promoção
+  if (posts.reply) {
+    await new Promise(resolve => setTimeout(resolve, 2 * 60 * 1000));
+    await postReply(posts.reply, tweetId);
+    console.log(`[Scheduler] Reply com promoção postado.`);
+  }
+
+  return { tweetId, tweetUrl };
+}
 
 async function autoPost() {
-  const MAX_DAILY = parseInt(process.env.MAX_DAILY_POSTS || '6');
+  const MAX_DAILY = parseInt(process.env.MAX_DAILY_POSTS || '5');
   const todayCount = db.getTodayCount();
 
   if (todayCount >= MAX_DAILY) {
@@ -39,14 +61,11 @@ async function autoPost() {
   }
 
   try {
-    console.log(`[Scheduler] Postando automaticamente: ${next.product_name}`);
-    const { tweetId, tweetUrl } = await postTweet(next.generated_post);
+    const { tweetId, tweetUrl } = await postWithReply(next);
     db.markAsPosted(next.id, tweetId, tweetUrl);
     db.incrementTodayCount();
 
     const newCount = db.getTodayCount();
-    console.log(`[Scheduler] ✅ Postado! (${newCount}/${MAX_DAILY} hoje)`);
-
     notifyTelegram(`📤 *Post automático enviado*\n${tweetUrl}\n📊 ${newCount}/${MAX_DAILY} hoje`);
   } catch (err) {
     console.error('[Scheduler] Erro no post automático:', err.message);
@@ -55,27 +74,28 @@ async function autoPost() {
 }
 
 async function autoFetch() {
-  const shopeeOk = ['SHOPEE_APP_ID','SHOPEE_SECRET_KEY','SHOPEE_ACCESS_TOKEN'].every(k => process.env[k]);
-  if (!shopeeOk) { console.log('[Scheduler] Shopee nao configurada, pulando busca.'); return; }
-  console.log('[Scheduler] Buscando novas promoções Shopee automaticamente...');
+  const shopeeOk = ['SHOPEE_APP_ID', 'SHOPEE_SECRET_KEY', 'SHOPEE_ACCESS_TOKEN'].every(k => process.env[k]);
+  if (!shopeeOk) {
+    console.log('[Scheduler] Shopee não configurada, pulando busca.');
+    return;
+  }
+
+  console.log('[Scheduler] Buscando novas promoções Shopee...');
 
   try {
     const deals = await fetchBestDeals(10);
     let added = 0;
 
     for (const product of deals) {
-      if (db.wasPostedRecently(product.name, 48)) {
-        continue; // Evita repetir produto das últimas 48h
-      }
-      const generatedPost = await generatePost(product);
-      db.addToQueue({ ...product, generatedPost });
+      if (db.wasPostedRecently(product.name, 48)) continue;
+      const posts = await generatePost(product);
+      db.addToQueue({ ...product, generatedPost: JSON.stringify(posts) });
       added++;
     }
 
-    console.log(`[Scheduler] ${added} produtos adicionados à fila automaticamente.`);
-
+    console.log(`[Scheduler] ${added} produtos adicionados à fila.`);
     if (added > 0) {
-      notifyTelegram(`🛍️ *Busca automática concluída*\n${added} promoção(ões) na fila.\nFila total: ${db.getPendingCount()}`);
+      notifyTelegram(`🛍️ *Busca automática*\n${added} promoção(ões) na fila.\nTotal: ${db.getPendingCount()}`);
     }
   } catch (err) {
     console.error('[Scheduler] Erro na busca automática:', err.message);
@@ -83,19 +103,12 @@ async function autoFetch() {
 }
 
 function initScheduler() {
-  // Agendamentos de postagem
-  POST_SCHEDULES.forEach(schedule => {
-    cron.schedule(schedule, autoPost, { timezone: TZ });
-  });
-
-  // Agendamentos de busca Shopee
-  FETCH_SCHEDULES.forEach(schedule => {
-    cron.schedule(schedule, autoFetch, { timezone: TZ });
-  });
+  POST_SCHEDULES.forEach(schedule => cron.schedule(schedule, autoPost, { timezone: TZ }));
+  FETCH_SCHEDULES.forEach(schedule => cron.schedule(schedule, autoFetch, { timezone: TZ }));
 
   console.log('[Scheduler] Cron jobs iniciados:');
   console.log('  Posts automáticos: 08h, 12h, 17h, 20h, 22h');
   console.log('  Busca Shopee: 07h, 11h30, 16h');
 }
 
-module.exports = { initScheduler, autoPost, autoFetch };
+module.exports = { initScheduler, autoPost, autoFetch, postWithReply };

@@ -10,60 +10,67 @@ const TEMPERATURE_CRITIC = 0.3;
 // =============================================
 // QUALITY PIPELINE MULTIAGENTE
 // Escritor → Crítico → Editor
+// Gera DOIS textos: post principal + reply
 // =============================================
 
-// Agente 1: Escritor — gera o post bruto
 async function runWriter(product) {
   const systemPrompt = getSystemPrompt();
 
-  const userPrompt = `Gere um post para o X sobre esta promoção:
+  const userPrompt = `Gere DOIS textos para o X sobre esta promoção:
 
 Produto: ${product.name}
 Preço atual: R$${product.price?.toFixed(2)}
-Preço original: R$${product.originalPrice > 0 ? product.originalPrice.toFixed(2) : 'não disponível'}
+Preço original: ${product.originalPrice > 0 ? 'R$' + product.originalPrice.toFixed(2) : 'não disponível'}
 Desconto: ${product.discountPct}%
 Avaliação: ${product.rating} estrelas
-Vendas: ${product.salesCount} unidades
 Link afiliado: ${product.affiliateLink}
 
-Gere o post agora. Só o texto, nada mais.`;
+Retorne EXATAMENTE neste formato JSON (sem markdown, sem explicação):
+{
+  "main": "texto da curiosidade aqui — sem link, sem produto direto",
+  "reply": "texto da promoção aqui — com link"
+}`;
 
   const res = await openai.chat.completions.create({
     model: MODEL,
     temperature: TEMPERATURE_WRITER,
-    max_tokens: 300,
+    max_tokens: 500,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
   });
 
-  return res.choices[0].message.content.trim();
+  const raw = res.choices[0].message.content.trim();
+  const clean = raw.replace(/```json|```/g, '').trim();
+  return JSON.parse(clean);
 }
 
-// Agente 2: Crítico — analisa e aprova ou rejeita
-async function runCritic(post) {
-  const criticPrompt = `Você é um crítico rigoroso de posts de promoção no X.
+async function runCritic(posts) {
+  const criticPrompt = `Você é um crítico rigoroso de posts para o X da persona "Gi" — mulher curiosa e bem-humorada.
 
-Analise este post e responda com um JSON exato (sem markdown, sem explicação):
+Analise estes dois posts e responda com JSON exato (sem markdown):
 {
   "approved": true/false,
   "reason": "motivo resumido",
-  "issues": ["lista de problemas encontrados"]
+  "issues": ["lista de problemas"]
 }
 
-REJEITE se o post tiver qualquer um desses problemas:
-- Linguagem de loja ou marketing (ex: "Aproveite!", "Não perca!", "Oferta exclusiva")
-- Fake urgency sem base (ex: "Últimas unidades!" sem dado real)
-- Emojis em excesso (mais de 2)
-- Hashtags em excesso (mais de 1)
-- Tom robótico ou de ChatGPT
-- Informação inventada que não estava nos dados
-- Muito longo (mais de 500 chars)
-- Link ausente
+REJEITE se:
+- Post principal tiver link ou mencionar produto/preço diretamente
+- Reply não tiver o link da promoção
+- Tom for de loja, influencer ou robô
+- Fake urgency ("últimas unidades!", "corre!")
+- Maiúsculas para gritar
+- Emojis em excesso (mais de 2 por post)
+- Fato inventado ou não verificável
+- Posts muito longos (main > 280 chars, reply > 280 chars)
 
-POST A ANALISAR:
-${post}`;
+POST PRINCIPAL:
+${posts.main}
+
+REPLY:
+${posts.reply}`;
 
   const res = await openai.chat.completions.create({
     model: MODEL,
@@ -77,62 +84,69 @@ ${post}`;
     const clean = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(clean);
   } catch {
-    return { approved: true, reason: 'Crítico falhou ao parsear, aprovando por padrão', issues: [] };
+    return { approved: true, reason: 'Crítico falhou, aprovando por padrão', issues: [] };
   }
 }
 
-// Agente 3: Editor — reescreve se necessário
-async function runEditor(post, issues) {
+async function runEditor(posts, issues) {
   const systemPrompt = getSystemPrompt();
 
-  const editorPrompt = `Reescreva este post corrigindo os seguintes problemas:
+  const editorPrompt = `Reescreva estes dois posts corrigindo os problemas abaixo.
+
+Problemas:
 ${issues.join('\n')}
 
-POST ORIGINAL:
-${post}
+POST PRINCIPAL ORIGINAL:
+${posts.main}
 
-Retorne APENAS o texto reescrito, sem explicação.`;
+REPLY ORIGINAL:
+${posts.reply}
+
+Retorne EXATAMENTE neste formato JSON (sem markdown):
+{
+  "main": "post principal reescrito",
+  "reply": "reply reescrito"
+}`;
 
   const res = await openai.chat.completions.create({
     model: MODEL,
     temperature: TEMPERATURE_WRITER,
-    max_tokens: 300,
+    max_tokens: 500,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: editorPrompt },
     ],
   });
 
-  return res.choices[0].message.content.trim();
+  const raw = res.choices[0].message.content.trim();
+  const clean = raw.replace(/```json|```/g, '').trim();
+  return JSON.parse(clean);
 }
 
-// Pipeline completo
+// Pipeline completo — retorna { main, reply }
 async function generatePost(product) {
   console.log(`[OpenAI] Gerando post para: ${product.name}`);
 
-  let post = await runWriter(product);
-  console.log('[OpenAI] Escritor:', post.substring(0, 80) + '...');
+  let posts = await runWriter(product);
+  console.log('[OpenAI] Escritor — main:', posts.main?.substring(0, 60) + '...');
 
-  // Até 2 tentativas de reescrita
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const critique = await runCritic(post);
-    console.log(`[OpenAI] Crítico (tentativa ${attempt}):`, critique.approved ? '✅ aprovado' : `❌ rejeitado — ${critique.reason}`);
+    const critique = await runCritic(posts);
+    console.log(`[OpenAI] Crítico (tentativa ${attempt}):`, critique.approved ? '✅' : `❌ ${critique.reason}`);
 
     if (critique.approved) break;
 
     if (attempt < 2) {
-      post = await runEditor(post, critique.issues);
-      console.log('[OpenAI] Editor reescreveu:', post.substring(0, 80) + '...');
+      posts = await runEditor(posts, critique.issues);
     }
   }
 
-  return post;
+  return posts; // { main: string, reply: string }
 }
 
-// Gera reply curto e humano para comentários
 async function generateReply(originalTweet, context = '') {
-  const replyPrompt = `Você é o Organize-se. Responda este comentário de forma direta, informal e humana.
-Máximo 200 caracteres. Só o texto, sem explicação.
+  const replyPrompt = `Você é a Gi do @organizeepoupe. Responda este comentário de forma leve, direta e humana.
+Máximo 200 caracteres. Só o texto.
 
 ${context ? `Contexto: ${context}` : ''}
 Comentário: ${originalTweet}`;
