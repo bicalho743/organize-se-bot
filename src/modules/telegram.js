@@ -1,5 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { generatePost, generateReply } = require('./openai');
+const { isUrl, extractProductFromUrl } = require('./linkReader');
 const { postTweet, postReply } = require('./twitter');
 const db = require('./db');
 const { fetchBestDeals } = require('./shopee');
@@ -208,21 +209,170 @@ Ou me mande qualquer texto com dados de promoção que eu gero o post.`, { parse
       return;
     }
 
-    // Trata como dados brutos de promoção
+    // Detecta se é uma URL — extrai produto automaticamente
+    if (isUrl(text)) {
+      bot.sendMessage(CHAT_ID, '🔗 Link detectado! Lendo produto...');
+      try {
+        const product = await extractProductFromUrl(text);
+        bot.sendMessage(CHAT_ID,
+          `📦 *${product.name?.substring(0, 80)}*\n` +
+          `💰 ${product.price ? 'R
+  });
+
+  // =============================================
+  // CALLBACKS DOS BOTÕES
+  // =============================================
+  bot.on('callback_query', async (query) => {
+    const data = query.data;
+    const [action, id] = data.split('::');
+
+    bot.answerCallbackQuery(query.id);
+
+    if (action === 'post_approve') {
+      const item = db.getQueueItemById(id);
+      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
+
+      try {
+        const { postWithReply } = require('./scheduler');
+        const { tweetId, tweetUrl } = await postWithReply(item);
+        db.markAsPosted(id, tweetId, tweetUrl);
+        db.incrementTodayCount();
+        bot.sendMessage(CHAT_ID, `✅ Postado!\n${tweetUrl}\n\nPosts hoje: ${db.getTodayCount()}/${MAX_DAILY_POSTS}`);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, `❌ Erro ao postar: ${err.message}`);
+      }
+
+    } else if (action === 'post_ignore') {
+      db.markAsIgnored(id);
+      bot.sendMessage(CHAT_ID, `🗑️ Post ignorado.\nFila restante: ${db.getPendingCount()} item(s).`);
+
+    } else if (action === 'post_regen') {
+      const item = db.getQueueItemById(id);
+      if (!item) { bot.sendMessage(CHAT_ID, '❌ Item não encontrado.'); return; }
+
+      bot.sendMessage(CHAT_ID, '🔄 Regenerando post...');
+      try {
+        const product = {
+          name: item.product_name,
+          price: item.price,
+          originalPrice: item.original_price,
+          discountPct: item.discount_pct,
+          affiliateLink: item.affiliate_link,
+          rating: item.rating,
+          salesCount: item.sales_count,
+        };
+        const newPosts = await generatePost(product);
+        db.updateQueuePost(id, JSON.stringify(newPosts));
+        const updated = db.getQueueItemById(id);
+        await presentPostForApproval(updated);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+      }
+
+    } else if (action === 'reply_approve') {
+      const session = db.getSession(CHAT_ID);
+      if (!session) return;
+      const { pendingPost, pendingProduct } = session;
+      const product = JSON.parse(pendingProduct || '{}');
+
+      try {
+        const { tweetUrl } = await postReply(pendingPost, product.tweetId);
+        db.setSession(CHAT_ID, { state: 'idle' });
+        bot.sendMessage(CHAT_ID, `✅ Reply postado!\n${tweetUrl}`);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, `❌ Erro: ${err.message}`);
+      }
+
+    } else if (action === 'reply_ignore') {
+      db.setSession(CHAT_ID, { state: 'idle' });
+      bot.sendMessage(CHAT_ID, '🗑️ Reply ignorado.');
+    }
+  });
+
+  console.log('[Telegram] Bot iniciado e escutando.');
+  return bot;
+}
+
+// =============================================
+// HELPERS
+// =============================================
+
+async function presentPostForApproval(item) {
+  let posts;
+  try { posts = JSON.parse(item.generated_post); } catch { posts = { main: item.generated_post, reply: '' }; }
+  const text = `📦 *${item.product_name?.substring(0, 60)}*\n` +
+    `💰 R${item.price?.toFixed(2)} (-${item.discount_pct}%)\n\n` +
+    `🐦 *Post principal:*\n\`\`\`\n${posts.main}\n\`\`\`\n\n` +
+    `💬 *Reply (2min depois):*\n\`\`\`\n${posts.reply}\n\`\`\``;
+
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '✅ Postar no X', callback_data: `post_approve::${item.id}` },
+      { text: '🔄 Regenerar', callback_data: `post_regen::${item.id}` },
+      { text: '🗑️ Ignorar', callback_data: `post_ignore::${item.id}` },
+    ]],
+  };
+
+  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+}
+
+async function presentReplyForApproval(replyText, tweetId) {
+  const text = `💬 *Reply gerado:*\n\`\`\`\n${replyText}\n\`\`\`\nPara tweet: ${tweetId}`;
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '✅ Postar reply', callback_data: `reply_approve::${tweetId}` },
+      { text: '🗑️ Ignorar', callback_data: `reply_ignore::${tweetId}` },
+    ]],
+  };
+  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+}
+
+function isAuthorized(msg) {
+  return String(msg.chat.id) === String(CHAT_ID);
+}
+
+function extractUrlFromText(text) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  return match ? match[0] : null;
+}
+
+function notifyTelegram(message) {
+  if (!bot) return;
+  bot.sendMessage(CHAT_ID, message, { parse_mode: 'Markdown' });
+}
+
+module.exports = { initTelegram, notifyTelegram };
+ + product.price.toFixed(2) : 'preço não encontrado'}` +
+          `${product.discountPct ? ' (-' + product.discountPct + '%)' : ''}\n\n⚙️ Gerando posts...`,
+          { parse_mode: 'Markdown' }
+        );
+        const posts = await generatePost(product);
+        const id = db.addToQueue({ ...product, generatedPost: JSON.stringify(posts) });
+        const item = db.getQueueItemById(id);
+        await presentPostForApproval(item);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, `❌ Erro ao processar link: ${err.message}`);
+      }
+      return;
+    }
+
+    // Trata como dados brutos de promoção (texto livre)
     bot.sendMessage(CHAT_ID, '⚙️ Gerando post a partir do texto...');
     try {
+      const urlInText = extractUrlFromText(text);
       const fakeProduct = {
-        name: text.substring(0, 100),
+        name: text.replace(urlInText || '', '').substring(0, 100).trim(),
         price: null,
         originalPrice: null,
         discountPct: null,
-        affiliateLink: extractUrlFromText(text) || '',
+        affiliateLink: urlInText || '',
         rating: null,
         salesCount: null,
         category: null,
       };
-      const generatedPost = await generatePost(fakeProduct);
-      const id = db.addToQueue({ ...fakeProduct, generatedPost });
+      const posts = await generatePost(fakeProduct);
+      const id = db.addToQueue({ ...fakeProduct, generatedPost: JSON.stringify(posts) });
       const item = db.getQueueItemById(id);
       await presentPostForApproval(item);
     } catch (err) {
