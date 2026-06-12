@@ -5,6 +5,7 @@ const { initDB } = require('./modules/db');
 const { initTelegram } = require('./modules/telegram');
 const { initScheduler } = require('./modules/scheduler');
 const { initTwitter } = require('./modules/twitter');
+const { initMentions } = require('./modules/mentions');
 
 // =============================================
 // VALIDAÇÃO DE VARIÁVEIS DE AMBIENTE
@@ -50,6 +51,9 @@ async function main() {
 
   // 3. Agendador automático
   initScheduler();
+
+  // 4. Monitoramento de menções
+  initMentions();
 
   // 4. Servidor HTTP (health check para Railway)
   const app = express();
