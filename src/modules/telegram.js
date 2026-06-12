@@ -1,6 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { generatePost, generateReply } = require('./openai');
-const { isUrl, extractProductFromUrl } = require('./linkReader');
+const { isUrl, extractProductFromUrl, isGarbageName } = require('./linkReader');
 const { postTweet, postReply } = require('./twitter');
 const db = require('./db');
 const { fetchBestDeals } = require('./shopee');
@@ -173,6 +173,26 @@ function initTelegram() {
     const text = (msg.text || '').trim();
     if (!text || text.length < 5) return;
 
+    // Estado: aguardando nome do produto após link sem nome
+    const session = db.getSession(CHAT_ID);
+    if (session && session.state === 'waiting_product_name') {
+      const productName = text.trim();
+      let pendingProduct;
+      try { pendingProduct = JSON.parse(session.pending_product || '{}'); } catch { pendingProduct = {}; }
+      pendingProduct.name = productName;
+      db.setSession(CHAT_ID, { state: 'idle' });
+      bot.sendMessage(CHAT_ID, 'Produto: ' + productName + '\n\nGerando posts...');
+      try {
+        const posts = await generatePost(pendingProduct);
+        const id = db.addToQueue(Object.assign({}, pendingProduct, { generatedPost: JSON.stringify(posts) }));
+        const item = db.getQueueItemById(id);
+        await presentPostForApproval(item);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, 'Erro ao gerar post: ' + err.message);
+      }
+      return;
+    }
+
     // REPLY: tweetId contexto
     if (text.toUpperCase().startsWith('REPLY:')) {
       const parts = text.replace(/^REPLY:\s*/i, '').split(' ');
@@ -194,10 +214,24 @@ function initTelegram() {
       bot.sendMessage(CHAT_ID, 'Link detectado! Lendo produto...');
       try {
         const product = await extractProductFromUrl(text);
+
+        // Se o nome for lixo (código, slug sem sentido), pede o nome manualmente
+        if (isGarbageName(product.name)) {
+          db.setSession(CHAT_ID, {
+            state: 'waiting_product_name',
+            pendingProduct: Object.assign({}, product, { name: '' }),
+          });
+          bot.sendMessage(CHAT_ID,
+            'Não consegui ler o nome do produto automaticamente.\n\n' +
+            'Me diga: qual é o produto? (ex: "Air Fryer Mondial 3.5L")'
+          );
+          return;
+        }
+
         const priceInfo = product.price
           ? 'R$' + product.price.toFixed(2) + (product.discountPct ? ' (-' + product.discountPct + '%)' : '')
           : 'preco nao encontrado';
-        bot.sendMessage(CHAT_ID, (product.name || 'Produto').substring(0, 80) + '\n' + priceInfo + '\n\nGerando posts...');
+        bot.sendMessage(CHAT_ID, product.name.substring(0, 80) + '\n' + priceInfo + '\n\nGerando posts...');
         const posts = await generatePost(product);
         const id = db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
         const item = db.getQueueItemById(id);
@@ -241,12 +275,31 @@ function initTelegram() {
     bot.answerCallbackQuery(query.id);
 
     if (action === 'post_approve') {
-      const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, 'Item nao encontrado.'); return; }
+      // Tenta buscar do banco primeiro
+      let item = db.getQueueItemById(id);
+
+      // Se não encontrou no banco (Railway reiniciou), busca da sessão
+      if (!item) {
+        const session = db.getSession(CHAT_ID);
+        if (session && session.pending_product) {
+          try {
+            const cached = JSON.parse(session.pending_product);
+            if (cached && cached.id === id) {
+              item = cached;
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (!item) { 
+        bot.sendMessage(CHAT_ID, 'Item nao encontrado. Mande o link de novo para regenerar.');
+        return; 
+      }
+
       try {
         const { postWithReply } = require('./scheduler');
         const result = await postWithReply(item);
-        db.markAsPosted(id, result.tweetId, result.tweetUrl);
+        if (item.id) db.markAsPosted(item.id, result.tweetId, result.tweetUrl);
         db.incrementTodayCount();
         bot.sendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl + '\n\nPosts hoje: ' + db.getTodayCount() + '/' + MAX_DAILY_POSTS);
       } catch (err) {
@@ -304,6 +357,12 @@ function initTelegram() {
 
 // Apresenta post para aprovacao
 async function presentPostForApproval(item) {
+  // Salva na sessão como backup caso o banco seja perdido
+  db.setSession(CHAT_ID, { 
+    state: 'pending_approval', 
+    pendingProduct: item 
+  });
+
   let posts;
   try {
     posts = JSON.parse(item.generated_post);

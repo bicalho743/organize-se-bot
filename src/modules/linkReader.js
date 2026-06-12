@@ -115,4 +115,15 @@ async function extractProductFromUrl(url) {
   }
 }
 
-module.exports = { isUrl, extractProductFromUrl };
+// Detecta se o nome extraído é lixo (código, slug sem sentido)
+function isGarbageName(name) {
+  if (!name || name === 'Produto') return true;
+  // Se tem menos de 3 palavras reais
+  const words = name.trim().split(/\s+/).filter(w => w.length > 2 && /[a-zA-ZÀ-ú]/.test(w));
+  if (words.length < 2) return true;
+  // Se parece um código alfanumérico (ex: 40e6zovdio)
+  if (/^[a-z0-9]{6,}$/i.test(name.trim())) return true;
+  return false;
+}
+
+module.exports = { isUrl, extractProductFromUrl, isGarbageName };
