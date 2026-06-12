@@ -30,6 +30,9 @@ async function doRefresh() {
       client_id: process.env.TWITTER_CLIENT_ID,
     });
 
+    console.log('[Twitter] Client ID:', process.env.TWITTER_CLIENT_ID?.substring(0, 10) + '...');
+    console.log('[Twitter] Refresh token:', refreshToken?.substring(0, 20) + '...');
+
     const res = await axios.post('https://api.x.com/2/oauth2/token', params.toString(), {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -44,14 +47,16 @@ async function doRefresh() {
     expiresAt = Date.now() + (res.data.expires_in * 1000);
     client = new TwitterApi(accessToken);
 
-    // Atualiza as variáveis de ambiente em memória
     process.env.TWITTER_OAUTH2_ACCESS_TOKEN = accessToken;
     process.env.TWITTER_OAUTH2_REFRESH_TOKEN = refreshToken;
 
-    console.log('[Twitter] Token renovado. Expira em ' + Math.round(res.data.expires_in / 60) + ' minutos.');
+    console.log('[Twitter] Token renovado com sucesso. Expira em ' + Math.round(res.data.expires_in / 60) + ' minutos.');
   } catch (err) {
     const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-    console.error('[Twitter] Falha ao renovar:', detail);
+    console.error('[Twitter] Falha ao renovar. Detalhe:', detail);
+    console.error('[Twitter] Client ID presente:', !!process.env.TWITTER_CLIENT_ID);
+    console.error('[Twitter] Client Secret presente:', !!process.env.TWITTER_CLIENT_SECRET);
+    console.error('[Twitter] Refresh token presente:', !!refreshToken);
     throw new Error('Token expirado. Execute: node scripts/auth_twitter.js e atualize o Railway.');
   }
 }
