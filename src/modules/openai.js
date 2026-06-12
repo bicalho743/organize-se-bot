@@ -13,8 +13,7 @@ async function searchFact(productName) {
     const query = productName.substring(0, 60);
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-search-preview',
-      temperature: 0.3,
-      max_tokens: 200,
+      max_tokens: 400,
       web_search_options: {},
       messages: [{
         role: 'user',
@@ -100,15 +99,10 @@ Analise estes dois posts e responda com JSON exato (sem markdown):
 }
 
 REJEITE APENAS se:
-- Post principal tiver um link (URL) — isso é proibido
-- Post principal mencionar preço ou valor monetário
+- Post principal tiver uma URL/link — isso é proibido
 - Reply NÃO tiver uma URL/link
-- Tom for de loja, influencer ou robô
-- Fake urgency ("últimas unidades!", "corre!")
-- Maiúsculas para gritar
-- Emojis em excesso (mais de 2 por post)
-- Fato inventado ou não verificável
-- Posts muito longos (main > 280 chars, reply > 280 chars)
+- Tom for claramente de loja ("Aproveite!", "Oferta exclusiva!")
+- Fake urgency explícita ("últimas unidades!", "corre agora!")
 
 POST PRINCIPAL:
 ${posts.main}

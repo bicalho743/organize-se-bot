@@ -22,12 +22,12 @@ const FETCH_SCHEDULES = [
 ];
 
 // Posta curiosidade + reply de promoção com 2min de intervalo
+// O reply roda em background para não bloquear a resposta ao usuário
 async function postWithReply(item) {
   let posts;
   try {
     posts = JSON.parse(item.generated_post);
   } catch {
-    // fallback para formato antigo (string simples)
     posts = { main: item.generated_post, reply: null };
   }
 
@@ -35,11 +35,19 @@ async function postWithReply(item) {
   const { tweetId, tweetUrl } = await postTweet(posts.main);
   console.log(`[Scheduler] Post principal: ${tweetUrl}`);
 
-  // Aguarda 2 minutos e posta o reply com a promoção
+  // Reply roda em background — não bloqueia retorno ao usuário
   if (posts.reply) {
-    await new Promise(resolve => setTimeout(resolve, 2 * 60 * 1000));
-    await postReply(posts.reply, tweetId);
-    console.log(`[Scheduler] Reply com promoção postado.`);
+    setTimeout(async () => {
+      try {
+        await postReply(posts.reply, tweetId);
+        console.log(`[Scheduler] Reply com promoção postado.`);
+        notifyTelegram(`💬 Reply postado em @organizeepoupe`);
+      } catch (err) {
+        console.error('[Scheduler] Erro no reply:', err.message);
+        notifyTelegram(`❌ Erro no reply: ${err.message}`);
+      }
+    }, 2 * 60 * 1000); // 2 minutos
+    console.log('[Scheduler] Reply agendado para 2 minutos.');
   }
 
   return { tweetId, tweetUrl };
