@@ -4,6 +4,39 @@ const { getSystemPrompt } = require('./brainLoader');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const MODEL = 'gpt-4o';
+
+// =============================================
+// WEB SEARCH — busca fato real antes de gerar
+// =============================================
+async function searchFact(productName) {
+  try {
+    const query = productName.substring(0, 60);
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-search-preview',
+      temperature: 0.3,
+      max_tokens: 200,
+      web_search_options: {},
+      messages: [{
+        role: 'user',
+        content: 'Encontre UM fato curioso, surpreendente ou pouco conhecido sobre: ' + query +
+          '. Responda em UMA frase objetiva em português. Não mencione marca nem preço.'
+      }],
+    });
+
+    // Extrai o texto da resposta
+    const textBlock = res.choices[0].message.content;
+    if (textBlock && textBlock.trim().length > 10) {
+      console.log('[Search] Fato encontrado:', textBlock.substring(0, 80));
+      return textBlock.trim();
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Search] Web search falhou, seguindo sem fato:', err.message);
+    return null;
+  }
+}
+
+
 const TEMPERATURE_WRITER = 0.85;
 const TEMPERATURE_CRITIC = 0.3;
 
@@ -24,9 +57,10 @@ async function runWriter(product) {
   const userPrompt = `Gere DOIS textos para o X sobre esta promoção.
 
 DADOS DO PRODUTO:
+
 - Nome: ${product.name}
 - Preço: ${priceStr}${originalStr ? ' (antes: ' + originalStr + ')' : ''}${discountStr ? ' — desconto: ' + discountStr : ''}
-- Link: ${link}
+- Link: ${link}${factHint}
 
 REGRAS OBRIGATÓRIAS:
 1. "main" = curiosidade relacionada ao produto/tema. SEM link. SEM mencionar marca ou preço. SEM nomear o produto diretamente.

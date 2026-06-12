@@ -65,6 +65,11 @@ async function initDB() {
       date TEXT PRIMARY KEY,
       count INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS kv_store (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   persist();
@@ -211,5 +216,6 @@ module.exports = {
   getPendingCount, getQueueList, getQueueItemById, updateQueuePost, clearPendingQueue,
   getTodayCount, incrementTodayCount,
   getSession, setSession,
-  getRecentPosts, wasPostedRecently
+  getRecentPosts, wasPostedRecently,
+  persist, runQuery, getOne
 };
