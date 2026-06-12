@@ -72,8 +72,23 @@ async function extractProductFromUrl(url) {
     const imageMatch = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
     const imageUrl = imageMatch ? imageMatch[1] : null;
 
+    // Tenta extrair nome da URL se o scraping falhou
+    let finalName = title;
+    if (!finalName || finalName === 'Shopee' || finalName.length < 5) {
+      // Extrai slug da URL: /Nome-do-Produto-i.xxx.xxx
+      const slugMatch = expanded.match(/\/([^/?]+)-i\.\d+\.\d+/);
+      if (slugMatch) {
+        finalName = slugMatch[1].replace(/-/g, ' ').toLowerCase();
+      }
+      // Tenta pegar do path da URL encurtada
+      if (!finalName || finalName.length < 5) {
+        const pathMatch = url.match(/shopee\.com\.br\/([^/?&]+)/);
+        if (pathMatch) finalName = pathMatch[1].replace(/-/g, ' ').toLowerCase();
+      }
+    }
+
     return {
-      name: title || 'Produto',
+      name: finalName || 'Produto',
       price,
       originalPrice,
       discountPct,

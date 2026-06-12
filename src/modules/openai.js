@@ -46,33 +46,34 @@ const TEMPERATURE_CRITIC = 0.3;
 // Gera DOIS textos: post principal + reply
 // =============================================
 
-async function runWriter(product) {
-  const systemPrompt = getSystemPrompt();
+async function runWriter(product, factHint) {
+  factHint = factHint || '';
+  var systemPrompt = getSystemPrompt();
+  var link = product.affiliateLink || '';
+  var priceStr = product.price ? 'R$' + product.price.toFixed(2) : 'preco nao informado';
+  var originalStr = product.originalPrice > 0 ? ' (antes: R$' + product.originalPrice.toFixed(2) + ')' : '';
+  var discountStr = product.discountPct ? ' desconto: ' + product.discountPct + '%' : '';
+  var factLine = factHint ? '\n- Fato pesquisado: ' + factHint : '';
 
-  const link = product.affiliateLink || '';
-  const priceStr = product.price ? `R${product.price.toFixed(2)}` : 'preço não informado';
-  const originalStr = product.originalPrice > 0 ? `R${product.originalPrice.toFixed(2)}` : null;
-  const discountStr = product.discountPct ? `${product.discountPct}%` : null;
+  var lines = [
+    'Gere DOIS textos para o X sobre esta promocao.',
+    '',
+    'DADOS DO PRODUTO:',
+    '- Nome: ' + (product.name || 'produto'),
+    '- Preco: ' + priceStr + originalStr + discountStr,
+    '- Link: ' + link + factLine,
+    '',
+    'REGRAS:',
+    '1. main = curiosidade sobre o tema. SEM link, SEM preco, SEM nome do produto.',
+    '2. reply = promocao com o link EXATO: ' + link,
+    '',
+    'JSON de resposta (sem markdown):',
+    '{"main": "curiosidade", "reply": "promocao com ' + link + '"}'
+  ];
 
-  const userPrompt = `Gere DOIS textos para o X sobre esta promoção.
+  var userPrompt = lines.join('\n');
 
-DADOS DO PRODUTO:
-
-- Nome: ${product.name}
-- Preço: ${priceStr}${originalStr ? ' (antes: ' + originalStr + ')' : ''}${discountStr ? ' — desconto: ' + discountStr : ''}
-- Link: ${link}${factHint}
-
-REGRAS OBRIGATÓRIAS:
-1. "main" = curiosidade relacionada ao produto/tema. SEM link. SEM mencionar marca ou preço. SEM nomear o produto diretamente.
-2. "reply" = promoção direta. DEVE conter o link EXATAMENTE como fornecido: ${link}
-
-Retorne EXATAMENTE este JSON (sem markdown, sem explicação, sem aspas extras):
-{
-  "main": "curiosidade aqui — sem link, sem preço, sem nomear produto",
-  "reply": "promoção aqui — deve terminar com ${link}"
-}`;
-
-  const res = await openai.chat.completions.create({
+  var res = await openai.chat.completions.create({
     model: MODEL,
     temperature: TEMPERATURE_WRITER,
     max_tokens: 500,
@@ -82,10 +83,11 @@ Retorne EXATAMENTE este JSON (sem markdown, sem explicação, sem aspas extras):
     ],
   });
 
-  const raw = res.choices[0].message.content.trim();
-  const clean = raw.replace(/```json|```/g, '').trim();
+  var raw = res.choices[0].message.content.trim();
+  var clean = raw.replace(/```json|```/g, '').trim();
   return JSON.parse(clean);
 }
+
 
 async function runCritic(posts) {
   const criticPrompt = `Você é um crítico rigoroso de posts para o X da persona "Gi" — mulher curiosa e bem-humorada.
@@ -176,9 +178,13 @@ function ensureLinkInReply(reply, link) {
 
 // Pipeline completo — retorna { main, reply }
 async function generatePost(product) {
-  console.log(`[OpenAI] Gerando post para: ${product.name}`);
+  console.log(`[OpenAI] Gerando post para: ${product.name || product.affiliateLink}`);
 
-  let posts = await runWriter(product);
+  // Busca fato real antes de gerar
+  const researched = await searchFact(product.name || '');
+  const factHint = researched || '';
+
+  let posts = await runWriter(product, factHint);
   console.log('[OpenAI] Escritor — main:', posts.main?.substring(0, 60) + '...');
 
   // Força o link no reply antes de criticar
