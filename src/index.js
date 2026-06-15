@@ -57,6 +57,7 @@ async function main() {
 
   // 4. Servidor HTTP (health check para Railway)
   const app = express();
+  app.use(express.json());
   const PORT = process.env.PORT || 8080;
 
   app.get('/health', (req, res) => {
@@ -72,8 +73,86 @@ async function main() {
     });
   });
 
+  app.post('/ugc-webhook', async (req, res) => {
+    const { id, status, video_url, thumbnail_url, caption, error } = req.body;
+    console.log(`[Webhook UGC] Recebido para job ${id}. Status: ${status}`);
+    
+    // Responde imediatamente para liberar o character-engine
+    res.json({ received: true });
+    
+    const db = require('./modules/db');
+    const { notifyTelegram, presentUgcForApproval } = require('./modules/telegram');
+    const fs = require('fs');
+    const path = require('path');
+    const axios = require('axios');
+    
+    const item = db.getUgcVideoById(id);
+    if (!item) {
+      console.warn(`[Webhook UGC] Job ${id} não encontrado no banco.`);
+      return;
+    }
+    
+    if (status === 'failed') {
+      db.updateUgcVideo(id, { status: 'failed' });
+      notifyTelegram(`❌ *Falha no UGC Pipeline da Gi*\nErro: ${error || 'Desconhecido'}`);
+      return;
+    }
+    
+    try {
+      notifyTelegram(`📥 *Vídeo Gerado!* Baixando arquivos do vídeo...`);
+      
+      const tmpDir = path.join(__dirname, '../data/tmp');
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+      
+      const localVideoPath = path.join(tmpDir, `${id}_final.mp4`);
+      const localThumbPath = path.join(tmpDir, `${id}_thumb.jpg`);
+      
+      // Download do Vídeo
+      const videoResponse = await axios({
+        url: video_url,
+        method: 'GET',
+        responseType: 'stream'
+      });
+      const videoWriter = fs.createWriteStream(localVideoPath);
+      videoResponse.data.pipe(videoWriter);
+      await new Promise((resolve, reject) => {
+        videoWriter.on('finish', resolve);
+        videoWriter.on('error', reject);
+      });
+      
+      // Download da Thumbnail
+      const thumbResponse = await axios({
+        url: thumbnail_url,
+        method: 'GET',
+        responseType: 'stream'
+      });
+      const thumbWriter = fs.createWriteStream(localThumbPath);
+      thumbResponse.data.pipe(thumbWriter);
+      await new Promise((resolve, reject) => {
+        thumbWriter.on('finish', resolve);
+        thumbWriter.on('error', reject);
+      });
+      
+      // Atualiza no banco
+      db.updateUgcVideo(id, {
+        status: 'pending_approval',
+        video_path: localVideoPath,
+        thumbnail_path: localThumbPath,
+        caption: caption
+      });
+      
+      // Apresenta para aprovação no Telegram
+      await presentUgcForApproval(id);
+      
+    } catch (err) {
+      console.error(`[Webhook UGC] Erro ao baixar arquivos do vídeo:`, err.message);
+      db.updateUgcVideo(id, { status: 'failed' });
+      notifyTelegram(`❌ *Falha ao processar arquivos do vídeo UGC*\nErro: ${err.message}`);
+    }
+  });
+
   app.listen(PORT, () => {
-    console.log(`[HTTP] Health check em http://localhost:${PORT}/health`);
+    console.log(`[HTTP] Health check e Webhook em http://localhost:${PORT}`);
   });
 
   console.log('✅ Organize-se Bot online e rodando!');
