@@ -4,6 +4,7 @@ const { generatePost } = require('./openai');
 const { postTweet, postReply } = require('./twitter');
 const db = require('./db');
 const { notifyTelegram } = require('./telegram');
+const { autoFetchAndTriggerUGC } = require('./ugcPipeline');
 
 const TZ = 'America/Sao_Paulo';
 
@@ -113,10 +114,14 @@ async function autoFetch() {
 function initScheduler() {
   POST_SCHEDULES.forEach(schedule => cron.schedule(schedule, autoPost, { timezone: TZ }));
   FETCH_SCHEDULES.forEach(schedule => cron.schedule(schedule, autoFetch, { timezone: TZ }));
+  
+  // UGC Video Cron Job - Diário às 09h
+  cron.schedule('0 9 * * *', autoFetchAndTriggerUGC, { timezone: TZ });
 
   console.log('[Scheduler] Cron jobs iniciados:');
   console.log('  Posts automáticos: 08h, 12h, 17h, 20h, 22h');
   console.log('  Busca Shopee: 07h, 11h30, 16h');
+  console.log('  UGC Vídeo Pipeline: 09h00');
 }
 
-module.exports = { initScheduler, autoPost, autoFetch, postWithReply };
+module.exports = { initScheduler, autoPost, autoFetch, postWithReply, autoFetchAndTriggerUGC };

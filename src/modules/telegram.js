@@ -181,15 +181,10 @@ function initTelegram() {
       try { pendingProduct = JSON.parse(session.pending_product || '{}'); } catch { pendingProduct = {}; }
       pendingProduct.name = productName;
       db.setSession(CHAT_ID, { state: 'idle' });
-      bot.sendMessage(CHAT_ID, 'Produto: ' + productName + '\n\nGerando posts...');
-      try {
-        const posts = await generatePost(pendingProduct);
-        const id = db.addToQueue(Object.assign({}, pendingProduct, { generatedPost: JSON.stringify(posts) }));
-        const item = db.getQueueItemById(id);
-        await presentPostForApproval(item);
-      } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro ao gerar post: ' + err.message);
-      }
+      const priceInfo = pendingProduct.price
+        ? 'R$' + pendingProduct.price.toFixed(2) + (pendingProduct.discountPct ? ' (-' + pendingProduct.discountPct + '%)' : '')
+        : 'preço não encontrado';
+      await presentActionChoice(pendingProduct, priceInfo);
       return;
     }
 
@@ -209,7 +204,7 @@ function initTelegram() {
       return;
     }
 
-    // URL — extrai produto e gera posts
+    // URL — extrai produto e apresenta opções de geração
     if (isUrl(text)) {
       bot.sendMessage(CHAT_ID, 'Link detectado! Lendo produto...');
       try {
@@ -230,20 +225,15 @@ function initTelegram() {
 
         const priceInfo = product.price
           ? 'R$' + product.price.toFixed(2) + (product.discountPct ? ' (-' + product.discountPct + '%)' : '')
-          : 'preco nao encontrado';
-        bot.sendMessage(CHAT_ID, product.name.substring(0, 80) + '\n' + priceInfo + '\n\nGerando posts...');
-        const posts = await generatePost(product);
-        const id = db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
-        const item = db.getQueueItemById(id);
-        await presentPostForApproval(item);
+          : 'preço não encontrado';
+        await presentActionChoice(product, priceInfo);
       } catch (err) {
         bot.sendMessage(CHAT_ID, 'Erro ao processar link: ' + err.message);
       }
       return;
     }
 
-    // Texto livre — gera post a partir dos dados
-    bot.sendMessage(CHAT_ID, 'Gerando post a partir do texto...');
+    // Texto livre — gera post/vídeo a partir dos dados
     try {
       const urlInText = extractUrlFromText(text);
       const fakeProduct = {
@@ -256,12 +246,9 @@ function initTelegram() {
         salesCount: null,
         category: null,
       };
-      const posts = await generatePost(fakeProduct);
-      const id = db.addToQueue(Object.assign({}, fakeProduct, { generatedPost: JSON.stringify(posts) }));
-      const item = db.getQueueItemById(id);
-      await presentPostForApproval(item);
+      await presentActionChoice(fakeProduct, 'preço não informado');
     } catch (err) {
-      bot.sendMessage(CHAT_ID, 'Erro ao gerar post: ' + err.message);
+      bot.sendMessage(CHAT_ID, 'Erro ao processar texto: ' + err.message);
     }
   });
 
@@ -348,6 +335,57 @@ function initTelegram() {
     } else if (action === 'reply_ignore') {
       db.setSession(CHAT_ID, { state: 'idle' });
       bot.sendMessage(CHAT_ID, 'Reply ignorado.');
+
+    } else if (action === 'action_choice') {
+      const session = db.getSession(CHAT_ID);
+      if (!session || !session.pending_product) {
+        bot.sendMessage(CHAT_ID, 'Nenhum produto em cache na sessão.');
+        return;
+      }
+
+      let product;
+      try {
+        product = typeof session.pending_product === 'string'
+          ? JSON.parse(session.pending_product)
+          : session.pending_product;
+      } catch (e) {
+        bot.sendMessage(CHAT_ID, 'Erro ao ler dados do produto da sessão.');
+        return;
+      }
+
+      if (id === 'gen_x') {
+        bot.sendMessage(CHAT_ID, 'Gerando post para o X...');
+        db.setSession(CHAT_ID, { state: 'idle' });
+        try {
+          const posts = await generatePost(product);
+          const queueId = db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
+          const item = db.getQueueItemById(queueId);
+          await presentPostForApproval(item);
+        } catch (err) {
+          bot.sendMessage(CHAT_ID, 'Erro ao gerar post para o X: ' + err.message);
+        }
+      } else if (id === 'gen_ugc') {
+        db.setSession(CHAT_ID, { state: 'idle' });
+        try {
+          const { triggerUGCGeneration } = require('./ugcPipeline');
+          await triggerUGCGeneration(product);
+        } catch (err) {
+          bot.sendMessage(CHAT_ID, 'Erro ao disparar UGC Pipeline: ' + err.message);
+        }
+      }
+
+    } else if (action === 'ugc_approve') {
+      bot.sendMessage(CHAT_ID, 'Aprovando e publicando vídeo UGC...');
+      try {
+        const { publishUGCVideo } = require('./ugcPipeline');
+        await publishUGCVideo(id);
+      } catch (err) {
+        bot.sendMessage(CHAT_ID, 'Erro ao publicar UGC: ' + err.message);
+      }
+
+    } else if (action === 'ugc_ignore') {
+      db.updateUgcVideo(id, { status: 'ignored' });
+      bot.sendMessage(CHAT_ID, 'Vídeo UGC ignorado.');
     }
   });
 
@@ -398,6 +436,53 @@ async function presentReplyForApproval(replyText, tweetId) {
   bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
+async function presentActionChoice(product, priceInfo) {
+  // Salva na sessão
+  db.setSession(CHAT_ID, {
+    state: 'waiting_action_choice',
+    pendingProduct: product
+  });
+
+  const text = `📦 *Produto Detectado:*\n${product.name}\n${priceInfo}\n\nO que deseja gerar para este produto?`;
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '📝 Gerar Post para X', callback_data: 'action_choice::gen_x' },
+      { text: '🎬 Gerar Vídeo UGC Gi', callback_data: 'action_choice::gen_ugc' }
+    ]]
+  };
+  await bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+}
+
+async function presentUgcForApproval(ugcId) {
+  const item = db.getUgcVideoById(ugcId);
+  if (!item) return;
+
+  const text = `🎬 *Vídeo UGC da Gi Gerado!*\n\n*Produto:* ${item.product_name}\n*Legenda sugerida:*\n\`\`\`\n${item.caption}\n\`\`\``;
+  
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '🚀 Aprovar e Postar', callback_data: 'ugc_approve::' + item.id },
+      { text: '❌ Ignorar', callback_data: 'ugc_ignore::' + item.id }
+    ]]
+  };
+
+  const fs = require('fs');
+  if (item.video_path && fs.existsSync(item.video_path)) {
+    // Envia a mensagem descritiva primeiro
+    await bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
+    // Envia o vídeo com botões de ação logo abaixo dele
+    await bot.sendVideo(CHAT_ID, item.video_path, {
+      caption: 'Assista ao vídeo final acima e escolha uma ação:',
+      reply_markup: keyboard
+    });
+  } else {
+    bot.sendMessage(CHAT_ID, text + '\n\n⚠️ Arquivo de vídeo não encontrado no disco.', {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  }
+}
+
 function isAuthorized(msg) {
   return String(msg.chat.id) === String(CHAT_ID);
 }
@@ -412,4 +497,4 @@ function notifyTelegram(message) {
   bot.sendMessage(CHAT_ID, message, { parse_mode: 'Markdown' });
 }
 
-module.exports = { initTelegram, notifyTelegram };
+module.exports = { initTelegram, notifyTelegram, presentUgcForApproval };

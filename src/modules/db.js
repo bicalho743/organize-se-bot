@@ -70,6 +70,22 @@ async function initDB() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS ugc_videos (
+      id TEXT PRIMARY KEY,
+      product_name TEXT NOT NULL,
+      price REAL,
+      affiliate_link TEXT NOT NULL,
+      image_url TEXT,
+      category TEXT,
+      video_path TEXT,
+      thumbnail_path TEXT,
+      srt_path TEXT,
+      caption TEXT,
+      status TEXT DEFAULT 'pending_generation',
+      created_at TEXT DEFAULT (datetime('now')),
+      posted_at TEXT
+    );
   `);
 
   persist();
@@ -210,6 +226,45 @@ function wasPostedRecently(productName, hoursAgo = 48) {
   return !!row;
 }
 
+// UGC Videos
+function addUgcVideo(product) {
+  const { v4: uuidv4 } = require('uuid');
+  const id = uuidv4();
+  runQuery(`
+    INSERT INTO ugc_videos (id, product_name, price, affiliate_link, image_url, category, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending_generation')
+  `, [id, product.name, product.price || null, product.affiliateLink, product.imageUrl || null, product.category || null]);
+  return id;
+}
+
+function updateUgcVideo(id, fields) {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return;
+  const setClauses = keys.map(k => `${k} = ?`).join(', ');
+  const params = [...Object.values(fields), id];
+  runQuery(`UPDATE ugc_videos SET ${setClauses} WHERE id = ?`, params);
+}
+
+function getUgcVideoById(id) {
+  return getOne(`SELECT * FROM ugc_videos WHERE id = ?`, [id]);
+}
+
+function getPendingUgcVideos() {
+  return getAll(`SELECT * FROM ugc_videos WHERE status = 'pending_approval' ORDER BY created_at ASC`);
+}
+
+function getNextPendingUgcVideo() {
+  return getOne(`SELECT * FROM ugc_videos WHERE status = 'pending_approval' ORDER BY created_at ASC LIMIT 1`);
+}
+
+function wasUgcPostedRecently(productName, hoursAgo = 24) {
+  const threshold = new Date(Date.now() - hoursAgo * 3600 * 1000).toISOString();
+  const row = getOne(`
+    SELECT id FROM ugc_videos WHERE product_name = ? AND status = 'posted' AND posted_at > ?
+  `, [productName, threshold]);
+  return !!row;
+}
+
 module.exports = {
   initDB, getDB,
   addToQueue, getNextInQueue, markAsPosted, markAsIgnored,
@@ -217,5 +272,8 @@ module.exports = {
   getTodayCount, incrementTodayCount,
   getSession, setSession,
   getRecentPosts, wasPostedRecently,
-  persist, runQuery, getOne
+  persist, runQuery, getOne,
+  // UGC
+  addUgcVideo, updateUgcVideo, getUgcVideoById,
+  getPendingUgcVideos, getNextPendingUgcVideo, wasUgcPostedRecently
 };
