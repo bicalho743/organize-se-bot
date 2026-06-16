@@ -446,31 +446,39 @@ async function presentActionChoice(product, priceInfo) {
     pendingProduct: product
   });
 
+  const character = process.env.BOT_CHARACTER || 'Gi - Organize e Poupe';
   const hasLink = !!product.affiliateLink;
   let text = '';
   let keyboard = { inline_keyboard: [] };
 
-  if (hasLink) {
-    text = `📦 *Produto/Link Detectado:*\n*Nome:* ${product.name}\n*Preço:* ${priceInfo}\n\nO que deseja gerar e para qual personagem?`;
-    keyboard.inline_keyboard = [
-      [
-        { text: '📝 Gi: Post no X', callback_data: 'action_choice::gen_x::Gi - Organize e Poupe' },
-        { text: '🎬 Gi: Vídeo UGC', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
-      ],
-      [
-        { text: '🎬 Padre Miguel: Vídeo', callback_data: 'action_choice::gen_ugc::padre_miguel' },
-        { text: '🎬 Theo: Vídeo', callback_data: 'action_choice::gen_ugc::theo' }
-      ]
-    ];
+  if (character === 'Gi - Organize e Poupe') {
+    if (hasLink) {
+      text = `📦 *Produto/Link Detectado:*\n*Nome:* ${product.name}\n*Preço:* ${priceInfo}\n\nO que deseja gerar para a Gi?`;
+      keyboard.inline_keyboard = [
+        [
+          { text: '📝 Gerar Post no X', callback_data: 'action_choice::gen_x::Gi - Organize e Poupe' },
+          { text: '🎬 Gerar Vídeo UGC', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
+        ]
+      ];
+    } else {
+      text = `✍️ *Reflexão/Tema Recebido:*\n"${product.name}"\n\nDeseja gerar um vídeo para a Gi?`;
+      keyboard.inline_keyboard = [
+        [
+          { text: '🎬 Gerar Vídeo', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
+        ]
+      ];
+    }
   } else {
-    text = `✍️ *Reflexão/Tema Recebido:*\n"${product.name}"\n\nQuem deve gerar este conteúdo?`;
+    // Padre Miguel, Frei ou outro
+    const charDisplayName = character === 'padre_miguel' ? 'Padre Miguel' : (character.charAt(0).toUpperCase() + character.slice(1));
+    if (hasLink) {
+      text = `📦 *Link Detectado:*\n*Nome:* ${product.name}\n\nDeseja gerar um vídeo de reflexão para o ${charDisplayName}?`;
+    } else {
+      text = `✍️ *Tema de Reflexão:*\n"${product.name}"\n\nDeseja gerar o vídeo para o ${charDisplayName}?`;
+    }
     keyboard.inline_keyboard = [
       [
-        { text: '🎬 Padre Miguel: Vídeo', callback_data: 'action_choice::gen_ugc::padre_miguel' },
-        { text: '🎬 Theo: Vídeo', callback_data: 'action_choice::gen_ugc::theo' }
-      ],
-      [
-        { text: '🎬 Gi: Vídeo (Foco Org.)', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
+        { text: `🎬 Gerar Vídeo (${charDisplayName})`, callback_data: `action_choice::gen_ugc::${character}` }
       ]
     ];
   }
