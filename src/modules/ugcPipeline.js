@@ -11,7 +11,7 @@ async function triggerUGCGeneration(product, character = 'Gi - Organize e Poupe'
   const id = db.addUgcVideo(product, character);
   console.log(`[UGC Pipeline] Iniciando pipeline via API para o vídeo ID: ${id} (${character})`);
   
-  let characterEngineUrl = process.env.CHARACTER_ENGINE_URL || 'http://localhost:8000';
+  let characterEngineUrl = (process.env.CHARACTER_ENGINE_URL || 'http://localhost:8000').trim();
   if (characterEngineUrl && !characterEngineUrl.startsWith('http://') && !characterEngineUrl.startsWith('https://')) {
     characterEngineUrl = 'https://' + characterEngineUrl;
   }
