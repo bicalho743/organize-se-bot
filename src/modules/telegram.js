@@ -339,7 +339,7 @@ function initTelegram() {
     } else if (action === 'action_choice') {
       const session = db.getSession(CHAT_ID);
       if (!session || !session.pending_product) {
-        bot.sendMessage(CHAT_ID, 'Nenhum produto em cache na sessão.');
+        bot.sendMessage(CHAT_ID, 'Nenhum produto/tema em cache na sessão.');
         return;
       }
 
@@ -349,12 +349,15 @@ function initTelegram() {
           ? JSON.parse(session.pending_product)
           : session.pending_product;
       } catch (e) {
-        bot.sendMessage(CHAT_ID, 'Erro ao ler dados do produto da sessão.');
+        bot.sendMessage(CHAT_ID, 'Erro ao ler dados da sessão.');
         return;
       }
 
-      if (id === 'gen_x') {
-        bot.sendMessage(CHAT_ID, 'Gerando post para o X...');
+      const type = parts[1];
+      const character = parts[2] || 'Gi - Organize e Poupe';
+
+      if (type === 'gen_x') {
+        bot.sendMessage(CHAT_ID, `Gerando post para o X (${character})...`);
         db.setSession(CHAT_ID, { state: 'idle' });
         try {
           const posts = await generatePost(product);
@@ -364,13 +367,13 @@ function initTelegram() {
         } catch (err) {
           bot.sendMessage(CHAT_ID, 'Erro ao gerar post para o X: ' + err.message);
         }
-      } else if (id === 'gen_ugc') {
+      } else if (type === 'gen_ugc') {
         db.setSession(CHAT_ID, { state: 'idle' });
         try {
           const { triggerUGCGeneration } = require('./ugcPipeline');
-          await triggerUGCGeneration(product);
+          await triggerUGCGeneration(product, character);
         } catch (err) {
-          bot.sendMessage(CHAT_ID, 'Erro ao disparar UGC Pipeline: ' + err.message);
+          bot.sendMessage(CHAT_ID, 'Erro ao disparar pipeline de vídeo: ' + err.message);
         }
       }
 
@@ -443,13 +446,35 @@ async function presentActionChoice(product, priceInfo) {
     pendingProduct: product
   });
 
-  const text = `📦 *Produto Detectado:*\n${product.name}\n${priceInfo}\n\nO que deseja gerar para este produto?`;
-  const keyboard = {
-    inline_keyboard: [[
-      { text: '📝 Gerar Post para X', callback_data: 'action_choice::gen_x' },
-      { text: '🎬 Gerar Vídeo UGC Gi', callback_data: 'action_choice::gen_ugc' }
-    ]]
-  };
+  const hasLink = !!product.affiliateLink;
+  let text = '';
+  let keyboard = { inline_keyboard: [] };
+
+  if (hasLink) {
+    text = `📦 *Produto/Link Detectado:*\n*Nome:* ${product.name}\n*Preço:* ${priceInfo}\n\nO que deseja gerar e para qual personagem?`;
+    keyboard.inline_keyboard = [
+      [
+        { text: '📝 Gi: Post no X', callback_data: 'action_choice::gen_x::Gi - Organize e Poupe' },
+        { text: '🎬 Gi: Vídeo UGC', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
+      ],
+      [
+        { text: '🎬 Padre Miguel: Vídeo', callback_data: 'action_choice::gen_ugc::padre_miguel' },
+        { text: '🎬 Theo: Vídeo', callback_data: 'action_choice::gen_ugc::theo' }
+      ]
+    ];
+  } else {
+    text = `✍️ *Reflexão/Tema Recebido:*\n"${product.name}"\n\nQuem deve gerar este conteúdo?`;
+    keyboard.inline_keyboard = [
+      [
+        { text: '🎬 Padre Miguel: Vídeo', callback_data: 'action_choice::gen_ugc::padre_miguel' },
+        { text: '🎬 Theo: Vídeo', callback_data: 'action_choice::gen_ugc::theo' }
+      ],
+      [
+        { text: '🎬 Gi: Vídeo (Foco Org.)', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
+      ]
+    ];
+  }
+
   await bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
@@ -457,7 +482,10 @@ async function presentUgcForApproval(ugcId) {
   const item = db.getUgcVideoById(ugcId);
   if (!item) return;
 
-  const text = `🎬 *Vídeo UGC da Gi Gerado!*\n\n*Produto:* ${item.product_name}\n*Legenda sugerida:*\n\`\`\`\n${item.caption}\n\`\`\``;
+  const charName = item.character || 'Gi - Organize e Poupe';
+  const labelType = charName === 'Gi - Organize e Poupe' ? 'Produto' : 'Tema';
+  const titleText = charName === 'Gi - Organize e Poupe' ? `Vídeo UGC de ${charName}` : `Vídeo de ${charName}`;
+  const text = `🎬 *${titleText} Gerado!*\n\n*${labelType}:* ${item.product_name}\n*Legenda sugerida:*\n\`\`\`\n${item.caption}\n\`\`\``;
   
   const keyboard = {
     inline_keyboard: [[

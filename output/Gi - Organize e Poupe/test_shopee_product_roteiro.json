@@ -1,0 +1,52 @@
+{
+  "topic": {
+    "id": "test_shopee_product",
+    "title": "Mini Processador de Alimentos USB",
+    "pillar": "promocao",
+    "hook": "olha o que eu achei na shopee gente",
+    "angle": "Produto: Mini Processador de Alimentos USB. Preço anterior: R$ 49.90. Preço atual: R$ 19.90. Desconto: 60%. Link: https://shopee.com.br/product/123/456.",
+    "cta": "e tá saindo por apenas R$ 19.90! o link com desconto tá na bio, corre pra garantir!",
+    "status": "pending"
+  },
+  "script": {
+    "title": "Mini Processador Achado",
+    "duration_seconds": 16,
+    "hook_text": "Achado na Shopee",
+    "segments": [
+      {
+        "type": "hook",
+        "start": 0,
+        "end": 3,
+        "narration": "olha o que eu achei na shopee gente",
+        "visual": "actor_talking",
+        "broll_prompt": null,
+        "subtitle_text": "olha o que eu achei na shopee gente"
+      },
+      {
+        "type": "curiosity",
+        "start": 3,
+        "end": 13,
+        "narration": "um mini processador de alimentos usb que era R$ 49.90 e agora tá só R$ 19.90. juro, é surreal!",
+        "visual": "broll",
+        "broll_prompt": "cinematic scene: close up of the product being used or shown in aesthetic lighting",
+        "subtitle_text": "um mini processador de alimentos usb, é surreal!"
+      },
+      {
+        "type": "cta",
+        "start": 13,
+        "end": 16,
+        "narration": "e tá saindo por apenas R$ 19.90! o link com desconto tá na bio, corre pra garantir!",
+        "visual": "actor_talking",
+        "broll_prompt": null,
+        "subtitle_text": "R$ 19.90! link na bio!"
+      }
+    ],
+    "full_narration": "olha o que eu achei na shopee gente um mini processador de alimentos usb que era R$ 49.90 e agora tá só R$ 19.90. juro, é surreal! e tá saindo por apenas R$ 19.90! o link com desconto tá na bio, corre pra garantir!",
+    "caption": "mini processador por menos de 20 reais?! você não vai acreditar! #achadinhos #promocao",
+    "hashtags": [
+      "#achadinhos",
+      "#promocao",
+      "#shopee"
+    ]
+  }
+}

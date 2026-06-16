@@ -84,9 +84,16 @@ async function initDB() {
       caption TEXT,
       status TEXT DEFAULT 'pending_generation',
       created_at TEXT DEFAULT (datetime('now')),
-      posted_at TEXT
+      posted_at TEXT,
+      character TEXT DEFAULT 'Gi - Organize e Poupe'
     );
   `);
+
+  try {
+    db.run("ALTER TABLE ugc_videos ADD COLUMN character TEXT DEFAULT 'Gi - Organize e Poupe'");
+  } catch (e) {
+    // Coluna já existe
+  }
 
   persist();
   console.log('[DB] Banco iniciado com sucesso.');
@@ -227,13 +234,13 @@ function wasPostedRecently(productName, hoursAgo = 48) {
 }
 
 // UGC Videos
-function addUgcVideo(product) {
+function addUgcVideo(product, character = 'Gi - Organize e Poupe') {
   const { v4: uuidv4 } = require('uuid');
   const id = uuidv4();
   runQuery(`
-    INSERT INTO ugc_videos (id, product_name, price, affiliate_link, image_url, category, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending_generation')
-  `, [id, product.name, product.price || null, product.affiliateLink, product.imageUrl || null, product.category || null]);
+    INSERT INTO ugc_videos (id, product_name, price, affiliate_link, image_url, category, status, character)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending_generation', ?)
+  `, [id, product.name, product.price || null, product.affiliateLink, product.imageUrl || null, product.category || null, character]);
   return id;
 }
 

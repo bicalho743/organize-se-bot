@@ -7,9 +7,9 @@ const { notifyTelegram } = require('./telegram');
 const { fetchBestDeals } = require('./shopee');
 
 // Orquestrador da geração de vídeo via API HTTP do character-engine (Assíncrono)
-async function triggerUGCGeneration(product) {
-  const id = db.addUgcVideo(product);
-  console.log(`[UGC Pipeline] Iniciando pipeline via API para o vídeo ID: ${id}`);
+async function triggerUGCGeneration(product, character = 'Gi - Organize e Poupe') {
+  const id = db.addUgcVideo(product, character);
+  console.log(`[UGC Pipeline] Iniciando pipeline via API para o vídeo ID: ${id} (${character})`);
   
   const characterEngineUrl = process.env.CHARACTER_ENGINE_URL || 'http://localhost:8000';
   const botUrl = process.env.BOT_URL || 'http://localhost:8080';
@@ -18,12 +18,14 @@ async function triggerUGCGeneration(product) {
   // Executa em background para não travar a resposta imediata
   (async () => {
     try {
-      notifyTelegram(`🎬 *Gi UGC Pipeline Iniciado*\nProduto: ${product.name.substring(0, 50)}...\nStatus: Enviando solicitação para o servidor de vídeo...`);
+      const displayTitle = character === 'Gi - Organize e Poupe' ? 'UGC da Gi' : character;
+      notifyTelegram(`🎬 *Pipeline Iniciado (${displayTitle})*\nConteúdo: ${product.name.substring(0, 50)}...\nStatus: Enviando solicitação para o servidor de vídeo...`);
       
       db.updateUgcVideo(id, { status: 'generating' });
       
       const payload = {
         job_id: id,
+        character: character,
         product: {
           name: product.name,
           price: product.price !== undefined ? product.price : null,
@@ -49,7 +51,7 @@ async function triggerUGCGeneration(product) {
     } catch (err) {
       console.error(`[UGC Pipeline] Falha ao iniciar geração para o ID ${id}:`, err.message);
       db.updateUgcVideo(id, { status: 'failed' });
-      notifyTelegram(`❌ *Falha no UGC Pipeline da Gi*\nErro ao se conectar com o servidor de vídeo: ${err.message}`);
+      notifyTelegram(`❌ *Falha no Pipeline (${character})*\nErro ao se conectar com o servidor de vídeo: ${err.message}`);
     }
   })();
 
@@ -69,8 +71,9 @@ async function publishUGCVideo(id) {
     throw new Error('UPLOAD_POST_KEY não configurada no ambiente.');
   }
 
+  const charName = item.character || 'Gi - Organize e Poupe';
   db.updateUgcVideo(id, { status: 'posting' });
-  notifyTelegram(`📤 Publicando vídeo UGC da Gi para o TikTok e Instagram Reels...`);
+  notifyTelegram(`📤 Publicando vídeo de ${charName} para o TikTok e Instagram Reels...`);
 
   try {
     const videoBytes = fs.readFileSync(item.video_path);
@@ -80,7 +83,8 @@ async function publishUGCVideo(id) {
       contentType: 'video/mp4'
     });
 
-    const profile = process.env.UPLOAD_POST_USER_GI || 'GiOrganizeEPoupe';
+    const envKey = 'UPLOAD_POST_USER_' + charName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const profile = process.env[envKey] || (charName === 'padre_miguel' ? 'padre_miguel' : 'GiOrganizeEPoupe');
     form.append('user', profile);
     form.append('title', item.caption);
     form.append('description', item.caption);
