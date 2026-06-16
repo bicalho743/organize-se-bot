@@ -40,7 +40,10 @@ if (!shopeeConfigured) {
 // INICIALIZAÇÃO
 // =============================================
 async function main() {
-  console.log('🚀 Iniciando Organize-se Bot...');
+  const character = process.env.BOT_CHARACTER || 'Gi - Organize e Poupe';
+  const charDisplayName = character === 'padre_miguel' ? 'Padre Miguel' : (character === 'Gi - Organize e Poupe' ? 'Gi' : character);
+
+  console.log(`🚀 Iniciando Bot do ${charDisplayName}...`);
 
   // 1. Banco de dados
   await initDB();
@@ -64,7 +67,7 @@ async function main() {
     const { getPendingCount, getTodayCount } = require('./modules/db');
     res.json({
       status: 'ok',
-      bot: 'Organize-se',
+      bot: charDisplayName,
       shopee: shopeeConfigured ? 'configurada' : 'não configurada',
       uptime: process.uptime(),
       queue: getPendingCount(),
@@ -94,7 +97,7 @@ async function main() {
     
     if (status === 'failed') {
       db.updateUgcVideo(id, { status: 'failed' });
-      notifyTelegram(`❌ *Falha no UGC Pipeline da Gi*\nErro: ${error || 'Desconhecido'}`);
+      notifyTelegram(`❌ *Falha no Pipeline do ${charDisplayName}*\nErro: ${error || 'Desconhecido'}`);
       return;
     }
     
@@ -147,7 +150,7 @@ async function main() {
     } catch (err) {
       console.error(`[Webhook UGC] Erro ao baixar arquivos do vídeo:`, err.message);
       db.updateUgcVideo(id, { status: 'failed' });
-      notifyTelegram(`❌ *Falha ao processar arquivos do vídeo UGC*\nErro: ${err.message}`);
+      notifyTelegram(`❌ *Falha ao processar arquivos do vídeo do ${charDisplayName}*\nErro: ${err.message}`);
     }
   });
 
@@ -155,9 +158,11 @@ async function main() {
     console.log(`[HTTP] Health check e Webhook em http://localhost:${PORT}`);
   });
 
-  console.log('✅ Organize-se Bot online e rodando!');
-  if (!shopeeConfigured) {
+  console.log(`✅ Bot do ${charDisplayName} online e rodando!`);
+  if (character === 'Gi - Organize e Poupe' && !shopeeConfigured) {
     console.log('💡 Dica: envie promoções manualmente pelo Telegram para começar a postar.');
+  } else if (character !== 'Gi - Organize e Poupe') {
+    console.log('💡 Dica: envie temas reflexivos no Telegram para começar a gerar vídeos.');
   }
 }
 
