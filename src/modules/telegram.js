@@ -10,6 +10,29 @@ let bot;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MAX_DAILY_POSTS = parseInt(process.env.MAX_DAILY_POSTS || '6');
 
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function safeSendMessage(chatId, text, options = {}) {
+  try {
+    return await bot.sendMessage(chatId, text, options);
+  } catch (err) {
+    console.error(`[Telegram] SafeSend failed with parse_mode ${options.parse_mode}, falling back to plain text. Error:`, err.message);
+    const plainOptions = { ...options };
+    delete plainOptions.parse_mode;
+    try {
+      return await bot.sendMessage(chatId, text, plainOptions);
+    } catch (retryErr) {
+      console.error('[Telegram] SafeSend fallback failed entirely:', retryErr.message);
+    }
+  }
+}
+
 function initTelegram() {
   bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -20,7 +43,7 @@ function initTelegram() {
   // /start
   bot.onText(/\/start/, (msg) => {
     if (!isAuthorized(msg)) return;
-    bot.sendMessage(CHAT_ID,
+    safeSendMessage(CHAT_ID,
       '*Organize-se Bot online*\n\n' +
       'Comandos:\n' +
       '/status — situacao do bot\n' +
@@ -51,7 +74,7 @@ function initTelegram() {
         text += '* [' + time + '] ' + (p.product_name || '').substring(0, 40) + '\n';
       });
     }
-    bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
+    safeSendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
   });
 
   // /fila
@@ -59,7 +82,7 @@ function initTelegram() {
     if (!isAuthorized(msg)) return;
     const queue = db.getQueueList();
     if (queue.length === 0) {
-      bot.sendMessage(CHAT_ID, 'Fila vazia. Use /buscar para trazer promocoes.');
+      safeSendMessage(CHAT_ID, 'Fila vazia. Use /buscar para trazer promocoes.');
       return;
     }
     let text = '*Fila de posts (' + queue.length + ')*\n\n';
@@ -68,17 +91,17 @@ function initTelegram() {
       text += (i + 1) + '. ' + (item.product_name || '').substring(0, 50) + '\n';
       text += '   ' + price + ' (-' + item.discount_pct + '%)\n';
     });
-    bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
+    safeSendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
   });
 
   // /buscar
   bot.onText(/\/buscar/, async (msg) => {
     if (!isAuthorized(msg)) return;
-    bot.sendMessage(CHAT_ID, 'Buscando promocoes na Shopee...');
+    safeSendMessage(CHAT_ID, 'Buscando promocoes na Shopee...');
     try {
       const deals = await fetchBestDeals(8);
       if (deals.length === 0) {
-        bot.sendMessage(CHAT_ID, 'Nenhuma promocao qualificada encontrada.');
+        safeSendMessage(CHAT_ID, 'Nenhuma promocao qualificada encontrada.');
         return;
       }
       let added = 0;
@@ -88,9 +111,9 @@ function initTelegram() {
         db.addToQueue(Object.assign({}, product, { generatedPost: JSON.stringify(posts) }));
         added++;
       }
-      bot.sendMessage(CHAT_ID, added + ' produtos adicionados a fila.\nUse /fila ou /postar.');
+      safeSendMessage(CHAT_ID, added + ' produtos adicionados a fila.\nUse /fila ou /postar.');
     } catch (err) {
-      bot.sendMessage(CHAT_ID, 'Erro ao buscar: ' + err.message);
+      safeSendMessage(CHAT_ID, 'Erro ao buscar: ' + err.message);
     }
   });
 
@@ -99,12 +122,12 @@ function initTelegram() {
     if (!isAuthorized(msg)) return;
     const todayCount = db.getTodayCount();
     if (todayCount >= MAX_DAILY_POSTS) {
-      bot.sendMessage(CHAT_ID, 'Limite diario atingido (' + todayCount + '/' + MAX_DAILY_POSTS + ').');
+      safeSendMessage(CHAT_ID, 'Limite diario atingido (' + todayCount + '/' + MAX_DAILY_POSTS + ').');
       return;
     }
     const next = db.getNextInQueue();
     if (!next) {
-      bot.sendMessage(CHAT_ID, 'Fila vazia. Use /buscar.');
+      safeSendMessage(CHAT_ID, 'Fila vazia. Use /buscar.');
       return;
     }
     await presentPostForApproval(next);
@@ -115,18 +138,18 @@ function initTelegram() {
     if (!isAuthorized(msg)) return;
     const newLimit = parseInt(match[1]);
     if (isNaN(newLimit) || newLimit < 1 || newLimit > 50) {
-      bot.sendMessage(CHAT_ID, 'Valor invalido. Use um numero entre 1 e 50.');
+      safeSendMessage(CHAT_ID, 'Valor invalido. Use um numero entre 1 e 50.');
       return;
     }
     process.env.MAX_DAILY_POSTS = String(newLimit);
-    bot.sendMessage(CHAT_ID, 'Limite diario ajustado para ' + newLimit + ' posts.');
+    safeSendMessage(CHAT_ID, 'Limite diario ajustado para ' + newLimit + ' posts.');
   });
 
   // /limite
   bot.onText(/\/limite$/, (msg) => {
     if (!isAuthorized(msg)) return;
     const todayCount = db.getTodayCount();
-    bot.sendMessage(CHAT_ID, 'Posts hoje: ' + todayCount + '/' + MAX_DAILY_POSTS + '\n\nPara alterar: /limite [numero]');
+    safeSendMessage(CHAT_ID, 'Posts hoje: ' + todayCount + '/' + MAX_DAILY_POSTS + '\n\nPara alterar: /limite [numero]');
   });
 
   // /post texto
@@ -134,15 +157,15 @@ function initTelegram() {
     if (!isAuthorized(msg)) return;
     const text = match[1].trim();
     if (text.length > 500) {
-      bot.sendMessage(CHAT_ID, 'Post muito longo (' + text.length + ' chars). Maximo 500.');
+      safeSendMessage(CHAT_ID, 'Post muito longo (' + text.length + ' chars). Maximo 500.');
       return;
     }
     try {
       const result = await postTweet(text);
       db.incrementTodayCount();
-      bot.sendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl);
+      safeSendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl);
     } catch (err) {
-      bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
+      safeSendMessage(CHAT_ID, 'Erro: ' + err.message);
     }
   });
 
@@ -153,9 +176,9 @@ function initTelegram() {
     const text = match[2].trim();
     try {
       const result = await postReply(text, tweetId);
-      bot.sendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
+      safeSendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
     } catch (err) {
-      bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
+      safeSendMessage(CHAT_ID, 'Erro: ' + err.message);
     }
   });
 
@@ -163,7 +186,7 @@ function initTelegram() {
   bot.onText(/\/limpar/, (msg) => {
     if (!isAuthorized(msg)) return;
     db.clearPendingQueue();
-    bot.sendMessage(CHAT_ID, 'Fila limpa.');
+    safeSendMessage(CHAT_ID, 'Fila limpa.');
   });
 
   // Mensagem livre
@@ -193,20 +216,20 @@ function initTelegram() {
       const parts = text.replace(/^REPLY:\s*/i, '').split(' ');
       const tweetId = parts[0];
       const context = parts.slice(1).join(' ');
-      bot.sendMessage(CHAT_ID, 'Gerando reply...');
+      safeSendMessage(CHAT_ID, 'Gerando reply...');
       try {
         const replyText = await generateReply(context || text, 'Reply para tweet ' + tweetId);
         db.setSession(CHAT_ID, { state: 'waiting_reply_approval', pendingPost: replyText, pendingProduct: { tweetId: tweetId } });
         await presentReplyForApproval(replyText, tweetId);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
       return;
     }
 
     // URL — extrai produto e apresenta opções de geração
     if (isUrl(text)) {
-      bot.sendMessage(CHAT_ID, 'Link detectado! Lendo produto...');
+      safeSendMessage(CHAT_ID, 'Link detectado! Lendo produto...');
       try {
         const product = await extractProductFromUrl(text);
 
@@ -216,7 +239,7 @@ function initTelegram() {
             state: 'waiting_product_name',
             pendingProduct: Object.assign({}, product, { name: '' }),
           });
-          bot.sendMessage(CHAT_ID,
+          safeSendMessage(CHAT_ID,
             'Não consegui ler o nome do produto automaticamente.\n\n' +
             'Me diga: qual é o produto? (ex: "Air Fryer Mondial 3.5L")'
           );
@@ -228,7 +251,7 @@ function initTelegram() {
           : 'preço não encontrado';
         await presentActionChoice(product, priceInfo);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro ao processar link: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro ao processar link: ' + err.message);
       }
       return;
     }
@@ -248,7 +271,7 @@ function initTelegram() {
       };
       await presentActionChoice(fakeProduct, 'preço não informado');
     } catch (err) {
-      bot.sendMessage(CHAT_ID, 'Erro ao processar texto: ' + err.message);
+      safeSendMessage(CHAT_ID, 'Erro ao processar text: ' + err.message);
     }
   });
 
@@ -279,7 +302,7 @@ function initTelegram() {
       }
 
       if (!item) { 
-        bot.sendMessage(CHAT_ID, 'Item nao encontrado. Mande o link de novo para regenerar.');
+        safeSendMessage(CHAT_ID, 'Item nao encontrado. Mande o link de novo para regenerar.');
         return; 
       }
 
@@ -288,19 +311,19 @@ function initTelegram() {
         const result = await postWithReply(item);
         if (item.id) db.markAsPosted(item.id, result.tweetId, result.tweetUrl);
         db.incrementTodayCount();
-        bot.sendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl + '\n\nPosts hoje: ' + db.getTodayCount() + '/' + MAX_DAILY_POSTS);
+        safeSendMessage(CHAT_ID, 'Postado!\n' + result.tweetUrl + '\n\nPosts hoje: ' + db.getTodayCount() + '/' + MAX_DAILY_POSTS);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro ao postar: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro ao postar: ' + err.message);
       }
 
     } else if (action === 'post_ignore') {
       db.markAsIgnored(id);
-      bot.sendMessage(CHAT_ID, 'Post ignorado. Fila restante: ' + db.getPendingCount());
+      safeSendMessage(CHAT_ID, 'Post ignorado. Fila restante: ' + db.getPendingCount());
 
     } else if (action === 'post_regen') {
       const item = db.getQueueItemById(id);
-      if (!item) { bot.sendMessage(CHAT_ID, 'Item nao encontrado.'); return; }
-      bot.sendMessage(CHAT_ID, 'Regenerando post...');
+      if (!item) { safeSendMessage(CHAT_ID, 'Item nao encontrado.'); return; }
+      safeSendMessage(CHAT_ID, 'Regenerando post...');
       try {
         const product = {
           name: item.product_name,
@@ -316,7 +339,7 @@ function initTelegram() {
         const updated = db.getQueueItemById(id);
         await presentPostForApproval(updated);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
 
     } else if (action === 'reply_approve') {
@@ -327,19 +350,19 @@ function initTelegram() {
       try {
         const result = await postReply(pendingPost, pendingProduct.tweetId);
         db.setSession(CHAT_ID, { state: 'idle' });
-        bot.sendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
+        safeSendMessage(CHAT_ID, 'Reply postado!\n' + result.tweetUrl);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro: ' + err.message);
       }
 
     } else if (action === 'reply_ignore') {
       db.setSession(CHAT_ID, { state: 'idle' });
-      bot.sendMessage(CHAT_ID, 'Reply ignorado.');
+      safeSendMessage(CHAT_ID, 'Reply ignorado.');
 
     } else if (action === 'action_choice') {
       const session = db.getSession(CHAT_ID);
       if (!session || !session.pending_product) {
-        bot.sendMessage(CHAT_ID, 'Nenhum produto/tema em cache na sessão.');
+        safeSendMessage(CHAT_ID, 'Nenhum produto/tema em cache na sessão.');
         return;
       }
 
@@ -349,7 +372,7 @@ function initTelegram() {
           ? JSON.parse(session.pending_product)
           : session.pending_product;
       } catch (e) {
-        bot.sendMessage(CHAT_ID, 'Erro ao ler dados da sessão.');
+        safeSendMessage(CHAT_ID, 'Erro ao ler dados da sessão.');
         return;
       }
 
@@ -357,7 +380,7 @@ function initTelegram() {
       const character = parts[2] || 'Gi - Organize e Poupe';
 
       if (type === 'gen_x') {
-        bot.sendMessage(CHAT_ID, `Gerando post para o X (${character})...`);
+        safeSendMessage(CHAT_ID, `Gerando post para o X (${character})...`);
         db.setSession(CHAT_ID, { state: 'idle' });
         try {
           const posts = await generatePost(product);
@@ -365,7 +388,7 @@ function initTelegram() {
           const item = db.getQueueItemById(queueId);
           await presentPostForApproval(item);
         } catch (err) {
-          bot.sendMessage(CHAT_ID, 'Erro ao gerar post para o X: ' + err.message);
+          safeSendMessage(CHAT_ID, 'Erro ao gerar post para o X: ' + err.message);
         }
       } else if (type === 'gen_ugc') {
         db.setSession(CHAT_ID, { state: 'idle' });
@@ -373,22 +396,22 @@ function initTelegram() {
           const { triggerUGCGeneration } = require('./ugcPipeline');
           await triggerUGCGeneration(product, character);
         } catch (err) {
-          bot.sendMessage(CHAT_ID, 'Erro ao disparar pipeline de vídeo: ' + err.message);
+          safeSendMessage(CHAT_ID, 'Erro ao disparar pipeline de vídeo: ' + err.message);
         }
       }
 
     } else if (action === 'ugc_approve') {
-      bot.sendMessage(CHAT_ID, 'Aprovando e publicando vídeo UGC...');
+      safeSendMessage(CHAT_ID, 'Aprovando e publicando vídeo UGC...');
       try {
         const { publishUGCVideo } = require('./ugcPipeline');
         await publishUGCVideo(id);
       } catch (err) {
-        bot.sendMessage(CHAT_ID, 'Erro ao publicar UGC: ' + err.message);
+        safeSendMessage(CHAT_ID, 'Erro ao publicar UGC: ' + err.message);
       }
 
     } else if (action === 'ugc_ignore') {
       db.updateUgcVideo(id, { status: 'ignored' });
-      bot.sendMessage(CHAT_ID, 'Vídeo UGC ignorado.');
+      safeSendMessage(CHAT_ID, 'Vídeo UGC ignorado.');
     }
   });
 
@@ -424,7 +447,7 @@ async function presentPostForApproval(item) {
       { text: 'Ignorar', callback_data: 'post_ignore::' + item.id },
     ]],
   };
-  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+  await safeSendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
 // Apresenta reply para aprovacao
@@ -436,7 +459,7 @@ async function presentReplyForApproval(replyText, tweetId) {
       { text: 'Ignorar', callback_data: 'reply_ignore::' + tweetId },
     ]],
   };
-  bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+  await safeSendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
 async function presentActionChoice(product, priceInfo) {
@@ -453,7 +476,7 @@ async function presentActionChoice(product, priceInfo) {
 
   if (character === 'Gi - Organize e Poupe') {
     if (hasLink) {
-      text = `📦 *Produto/Link Detectado:*\n*Nome:* ${product.name}\n*Preço:* ${priceInfo}\n\nO que deseja gerar para a Gi?`;
+      text = `📦 <b>Produto/Link Detectado:</b>\n<b>Nome:</b> ${escapeHTML(product.name)}\n<b>Preço:</b> ${escapeHTML(priceInfo)}\n\nO que deseja gerar para a Gi?`;
       keyboard.inline_keyboard = [
         [
           { text: '📝 Gerar Post no X', callback_data: 'action_choice::gen_x::Gi - Organize e Poupe' },
@@ -461,7 +484,7 @@ async function presentActionChoice(product, priceInfo) {
         ]
       ];
     } else {
-      text = `✍️ *Reflexão/Tema Recebido:*\n"${product.name}"\n\nDeseja gerar um vídeo para a Gi?`;
+      text = `✍️ <b>Reflexão/Tema Recebido:</b>\n"${escapeHTML(product.name)}"\n\nDeseja gerar um vídeo para a Gi?`;
       keyboard.inline_keyboard = [
         [
           { text: '🎬 Gerar Vídeo', callback_data: 'action_choice::gen_ugc::Gi - Organize e Poupe' }
@@ -472,9 +495,9 @@ async function presentActionChoice(product, priceInfo) {
     // Padre Miguel, Frei ou outro
     const charDisplayName = character === 'padre_miguel' ? 'Padre Miguel' : (character.charAt(0).toUpperCase() + character.slice(1));
     if (hasLink) {
-      text = `📦 *Link Detectado:*\n*Nome:* ${product.name}\n\nDeseja gerar um vídeo de reflexão para o ${charDisplayName}?`;
+      text = `📦 <b>Link Detectado:</b>\n<b>Nome:</b> ${escapeHTML(product.name)}\n\nDeseja gerar um vídeo de reflexão para o ${charDisplayName}?`;
     } else {
-      text = `✍️ *Tema de Reflexão:*\n"${product.name}"\n\nDeseja gerar o vídeo para o ${charDisplayName}?`;
+      text = `✍️ <b>Tema de Reflexão:</b>\n"${escapeHTML(product.name)}"\n\nDeseja gerar o vídeo para o ${charDisplayName}?`;
     }
     keyboard.inline_keyboard = [
       [
@@ -483,7 +506,7 @@ async function presentActionChoice(product, priceInfo) {
     ];
   }
 
-  await bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+  await safeSendMessage(CHAT_ID, text, { parse_mode: 'HTML', reply_markup: keyboard });
 }
 
 async function presentUgcForApproval(ugcId) {
@@ -493,7 +516,7 @@ async function presentUgcForApproval(ugcId) {
   const charName = item.character || 'Gi - Organize e Poupe';
   const labelType = charName === 'Gi - Organize e Poupe' ? 'Produto' : 'Tema';
   const titleText = charName === 'Gi - Organize e Poupe' ? `Vídeo UGC de ${charName}` : `Vídeo de ${charName}`;
-  const text = `🎬 *${titleText} Gerado!*\n\n*${labelType}:* ${item.product_name}\n*Legenda sugerida:*\n\`\`\`\n${item.caption}\n\`\`\``;
+  const text = `🎬 <b>${titleText} Gerado!</b>\n\n<b>${labelType}:</b> ${escapeHTML(item.product_name)}\n<b>Legenda sugerida:</b>\n<pre>${escapeHTML(item.caption)}</pre>`;
   
   const keyboard = {
     inline_keyboard: [[
@@ -505,15 +528,20 @@ async function presentUgcForApproval(ugcId) {
   const fs = require('fs');
   if (item.video_path && fs.existsSync(item.video_path)) {
     // Envia a mensagem descritiva primeiro
-    await bot.sendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
+    await safeSendMessage(CHAT_ID, text, { parse_mode: 'HTML' });
     // Envia o vídeo com botões de ação logo abaixo dele
-    await bot.sendVideo(CHAT_ID, item.video_path, {
-      caption: 'Assista ao vídeo final acima e escolha uma ação:',
-      reply_markup: keyboard
-    });
+    try {
+      await bot.sendVideo(CHAT_ID, item.video_path, {
+        caption: 'Assista ao vídeo final acima e escolha uma ação:',
+        reply_markup: keyboard
+      });
+    } catch (videoErr) {
+      console.error('[Telegram] Failed to send video file:', videoErr.message);
+      await safeSendMessage(CHAT_ID, '⚠️ Falha ao enviar o arquivo de vídeo do Telegram: ' + videoErr.message);
+    }
   } else {
-    bot.sendMessage(CHAT_ID, text + '\n\n⚠️ Arquivo de vídeo não encontrado no disco.', {
-      parse_mode: 'Markdown',
+    await safeSendMessage(CHAT_ID, text + '\n\n⚠️ Arquivo de vídeo não encontrado no disco.', {
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
   }
@@ -530,7 +558,9 @@ function extractUrlFromText(text) {
 
 function notifyTelegram(message) {
   if (!bot) return;
-  bot.sendMessage(CHAT_ID, message, { parse_mode: 'Markdown' });
+  safeSendMessage(CHAT_ID, message);
 }
+
+module.exports = { initTelegram, notifyTelegram, presentUgcForApproval };
 
 module.exports = { initTelegram, notifyTelegram, presentUgcForApproval };
