@@ -97,7 +97,7 @@ async function main() {
     
     if (status === 'failed') {
       db.updateUgcVideo(id, { status: 'failed' });
-      notifyTelegram(`❌ *Falha no Pipeline do ${charDisplayName}*\nErro: ${error || 'Desconhecido'}`);
+      notifyTelegram(`❌ *Falha no Pipeline do ${charDisplayName}*\nErro:\n\`\`\`\n${error || 'Desconhecido'}\n\`\`\``);
       return;
     }
     
