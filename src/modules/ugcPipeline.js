@@ -16,7 +16,13 @@ async function triggerUGCGeneration(product, character = 'Gi - Organize e Poupe'
     characterEngineUrl = 'https://' + characterEngineUrl;
   }
   
-  const botUrl = process.env.BOT_URL || 'http://localhost:8080';
+  let botUrl = process.env.BOT_URL;
+  if (!botUrl && process.env.RAILWAY_PUBLIC_DOMAIN) {
+    botUrl = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  }
+  if (!botUrl) {
+    botUrl = 'http://localhost:8080';
+  }
   const webhookUrl = `${botUrl}/ugc-webhook`;
   
   // Executa em background para não travar a resposta imediata
