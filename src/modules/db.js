@@ -140,8 +140,8 @@ function addToQueue(product) {
     (id, product_name, price, original_price, discount_pct, affiliate_link, image_url, rating, sales_count, category, generated_post)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [id, product.name, product.price, product.originalPrice, product.discountPct,
-      product.affiliateLink, product.imageUrl || null, product.rating || null,
-      product.salesCount || null, product.category || null, product.generatedPost || null]);
+    product.affiliateLink, product.imageUrl || null, product.rating || null,
+    product.salesCount || null, product.category || null, product.generatedPost || null]);
   return id;
 }
 
@@ -215,6 +215,7 @@ function setSession(chatId, data) {
     `, [data.state || 'idle', data.pendingPost || null, pendingProduct, String(chatId)]);
   } else {
     runQuery(`
+      
       INSERT INTO sessions (chat_id, state, pending_post, pending_product) VALUES (?, ?, ?, ?)
     `, [String(chatId), data.state || 'idle', data.pendingPost || null, pendingProduct]);
   }

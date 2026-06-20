@@ -88,8 +88,9 @@ function initTelegram() {
     let text = '*Fila de posts (' + queue.length + ')*\n\n';
     queue.forEach(function(item, i) {
       const price = item.price ? 'R$' + Number(item.price).toFixed(2) : 'sem preco';
+      const discountStr = item.discount_pct ? ' (-' + item.discount_pct + '%)' : '';
       text += (i + 1) + '. ' + (item.product_name || '').substring(0, 50) + '\n';
-      text += '   ' + price + ' (-' + item.discount_pct + '%)\n';
+      text += '   ' + price + discountStr + '\n';
     });
     safeSendMessage(CHAT_ID, text, { parse_mode: 'Markdown' });
   });
@@ -434,9 +435,10 @@ async function presentPostForApproval(item) {
     posts = { main: item.generated_post, reply: '' };
   }
   const price = item.price ? 'R$' + Number(item.price).toFixed(2) : 'sem preco';
+  const discountStr = item.discount_pct ? ' (-' + item.discount_pct + '%)' : '';
   const text =
     '*' + (item.product_name || 'Produto').substring(0, 60) + '*\n' +
-    price + ' (-' + item.discount_pct + '%)\n\n' +
+    price + discountStr + '\n\n' +
     '*Post principal:*\n```\n' + (posts.main || '') + '\n```\n\n' +
     '*Reply (2min depois):*\n```\n' + (posts.reply || '') + '\n```';
 
